@@ -108,14 +108,14 @@ static const char* state_name(PState s) {
 
 static void fill_job(JsonObject o, const JobEntry& e) {
   o["id"] = e.id;
-  o["title"] = e.hdr.title;
+  o["title"] = String(e.hdr.title);  // copy: callers reuse the entry
   o["labels"] = e.hdr.pages;
   o["copies"] = e.hdr.copies;
   o["tape_mm"] = e.hdr.tape_mm;
   o["height"] = e.max_height;
   o["length_mm"] = roundf(e.total_cols * 25.4f / pt::kDpi * 10) / 10;
   o["created"] = e.hdr.created;
-  o["source"] = e.source;
+  o["source"] = String(e.source);
   o["printed"] = e.printed;
   o["bytes"] = e.file_size;
 }
@@ -150,7 +150,7 @@ static void handle_status() {
   }
   JsonObject j = d["job"].to<JsonObject>();
   j["id"] = s.job_id;
-  j["title"] = s.job_title;
+  j["title"] = String(s.job_title);
   j["done"] = s.pages_done;
   j["total"] = s.pages_total;
   j["queued"] = s.queued;
@@ -186,6 +186,18 @@ static void handle_jobs() {
   JobEntry e;
   for (int i = 0; jobs.at(i, e); ++i) fill_job(a.add<JsonObject>(), e);
   send_json(200, d);
+}
+
+// Options for /api/print. The WebServer does not parse the query string of a
+// raw (non-form) POST, so binary uploads carry them as headers: X-Print,
+// X-Title, X-Copies, X-Tape-MM, X-Source. Query args still work for GETs.
+static String opt(const char* name) {
+  String h = String("X-") + name;
+  if (server.hasHeader(h)) return server.header(h);
+  String q = String(name);
+  q.toLowerCase();
+  q.replace("-", "_");
+  return server.arg(q);
 }
 
 static uint32_t path_id() { return strtoul(server.pathArg(0).c_str(), nullptr, 10); }
@@ -260,15 +272,17 @@ static void handle_print_done() {
   File f = LittleFS.open(kUpload, "r");
   uint8_t head[4] = {0};
   if (f) { f.read(head, 4); f.close(); }
-  bool print = server.arg("print") != "0";
+  String po = opt("Print");
+  po.toLowerCase();
+  bool print = !(po == "0" || po == "false" || po == "no") && server.uri() != "/api/save";
   String err;
   String src;
   const char* job_path = kUpload;
   if (!memcmp(head, "TDJ1", 4)) {
-    src = server.hasArg("source") ? server.arg("source") : "api";
+    src = opt("Source").length() ? opt("Source") : "api";
   } else if (head[0] == 'P' && head[1] == '4') {
-    int copies = server.hasArg("copies") ? server.arg("copies").toInt() : 1;
-    if (!render::pbm_job(kUpload, kJob, server.arg("title"), copies, err)) { send_err(400, err); return; }
+    int copies = opt("Copies").length() ? opt("Copies").toInt() : 1;
+    if (!render::pbm_job(kUpload, kJob, opt("Title"), copies, err)) { send_err(400, err); return; }
     LittleFS.remove(kUpload);
     job_path = kJob;
     src = "pbm";
@@ -282,8 +296,8 @@ static void handle_print_done() {
       if (g) { h = g->print_pins; mm = g->width_mm; }
     }
     // Clients may ask for a tape width explicitly (preview without a printer).
-    if (server.hasArg("tape_mm")) {
-      const pt::TapeGeom* g = pt::tape_geom(server.arg("tape_mm").toInt());
+    if (opt("Tape-MM").length()) {
+      const pt::TapeGeom* g = pt::tape_geom(opt("Tape-MM").toInt());
       if (g) { h = g->print_pins; mm = g->width_mm; }
     }
     File jf = LittleFS.open(kUpload, "r");
@@ -291,6 +305,12 @@ static void handle_print_done() {
     jf.close();
     LittleFS.remove(kUpload);
     if (!render::text_job(body.c_str(), body.length(), h, mm, kJob, err)) { send_err(400, err); return; }
+    if (body.indexOf("\"print\"") >= 0) {  // {"print": false} in the body
+      JsonDocument pd;
+      JsonDocument filter;
+      filter["print"] = true;
+      if (!deserializeJson(pd, body, DeserializationOption::Filter(filter)) && pd["print"].is<bool>()) print = print && pd["print"].as<bool>();
+    }
     job_path = kJob;
     src = "text";
   }
@@ -399,8 +419,8 @@ static bool captive_redirect() {
 }
 
 void WebUi::begin() {
-  const char* hdrs[] = {"X-API-Key"};
-  server.collectHeaders(hdrs, 1);
+  const char* hdrs[] = {"X-API-Key", "X-Print", "X-Title", "X-Copies", "X-Tape-MM", "X-Source"};
+  server.collectHeaders(hdrs, 6);
   server.on("/", HTTP_GET, []() { if (captive_redirect()) return; send_asset("text/html", WEB_INDEX_HTML, WEB_INDEX_HTML_LEN); });
   server.on("/setup", HTTP_GET, []() { send_asset("text/html", WEB_SETUP_HTML, WEB_SETUP_HTML_LEN); });
   server.on("/api/status", HTTP_GET, handle_status);
@@ -409,9 +429,10 @@ void WebUi::begin() {
   server.on(UriBraces("/api/jobs/{}"), HTTP_DELETE, handle_job_delete);
   server.on(UriBraces("/api/jobs/{}/print"), HTTP_POST, handle_job_print);
   server.on("/api/print", HTTP_POST, handle_print_done, handle_print_raw);
+  server.on("/api/save", HTTP_POST, handle_print_done, handle_print_raw);
   server.on("/api/print", HTTP_OPTIONS, []() {
     server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Access-Control-Allow-Headers", "Content-Type, X-API-Key");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-Print, X-Title, X-Copies, X-Tape-MM, X-Source");
     server.send(204);
   });
   server.on("/api/events", HTTP_GET, []() {

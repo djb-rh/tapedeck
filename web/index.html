@@ -110,7 +110,7 @@ pre{white-space:pre-wrap;font-size:12px;background:var(--chip);padding:8px;borde
 
 <dialog id="apidlg">
   <h3 style="margin-top:0">Printing from other apps</h3>
-  <p class="small">POST a JSON text job, a binary PBM (P4; height = dots across the tape) or a TDJ1 job to <code>/api/print</code>. Add <code>?print=0</code> to store it in the history without printing. If an API key is set in Setup, send it as an <code>X-API-Key</code> header.</p>
+  <p class="small">POST a JSON text job, a binary PBM (P4; height = dots across the tape) or a TDJ1 job to <code>/api/print</code>. POST to <code>/api/save</code> instead (or send <code>X-Print: 0</code>) to store it in the history without printing. If an API key is set in Setup, send it as an <code>X-API-Key</code> header.</p>
   <pre id="apiex"></pre>
   <div class="row"><span class="spacer"></span><button id="apiclose">Close</button></div>
 </dialog>
@@ -480,7 +480,7 @@ async function doPrint() {
   const job = encodeJob(pages, title, Math.max(1, Math.min(99, +$("copies").value || 1)), $("chain").checked, src);
   $("print").disabled = true;
   try {
-    const r = await fetch("/api/print?source=web", {method: "POST", headers: {"Content-Type": "application/octet-stream"}, body: job});
+    const r = await fetch("/api/print", {method: "POST", headers: {"Content-Type": "application/octet-stream", "X-Source": "web"}, body: job});
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || r.statusText);
     toast(`Queued job #${j.job.id}: ${j.job.labels * j.job.copies} label${j.job.labels * j.job.copies > 1 ? "s" : ""}`);
@@ -640,7 +640,7 @@ curl -X POST http://${h}/api/print -H 'Content-Type: application/json' \\
   -d '{"text":"KEEP OUT","font":"bold","frame":true,"copies":3}'
 
 # Your own bitmap: binary PBM (P4), height up to ${printDots()} dots on this tape
-curl -X POST 'http://${h}/api/print?title=logo' --data-binary @logo.pbm
+curl -X POST http://${h}/api/print -H 'X-Title: logo' --data-binary @logo.pbm
 
 curl http://${h}/api/status      # printer, tape width + colours, job progress
 curl http://${h}/api/jobs        # history; POST /api/jobs/ID/print reprints`;

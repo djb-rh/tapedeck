@@ -60,8 +60,14 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         p = self.path.split("?")[0]
         n = int(self.headers.get("Content-Length", 0)); data = self.rfile.read(n)
-        if p == "/api/print":
-            if data[:4] != b"TDJ1": return self.send(400, {"ok": False, "error": "mock only takes TDJ1"})
+        if p in ("/api/print", "/api/save"):
+            if data[:4] != b"TDJ1":
+                ext = "pbm" if data[:2] == b"P4" else "json"
+                fn = os.path.join(OUT, "upload-%d.%s" % (state["next"], ext)); open(fn, "wb").write(data)
+                jid = state["next"]; state["next"] += 1
+                return self.send(200, {"ok": True, "queued": p == "/api/print" and self.headers.get("X-Print") != "0",
+                                       "job": {"id": jid, "title": self.headers.get("X-Title", ext), "labels": 1,
+                                               "copies": int(self.headers.get("X-Copies", 1)), "length_mm": 0, "source": ext}})
             jid = state["next"]; state["next"] += 1
             meta = inspect(data, jid, "web")
             jobs.insert(0, {"meta": meta, "data": data})

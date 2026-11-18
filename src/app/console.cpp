@@ -12,11 +12,75 @@
 #include "jobs.h"
 #include "printer.h"
 #include "render.h"
+#include <HTTPClient.h>
 #include <M5Unified.h>
 
 Console console;
 
 void Console::begin() { line_.reserve(256); }
+
+// HTTP self-test: a separate task talks to our own web server over loopback
+// while loop() serves it, exercising the same paths a browser or API client uses.
+static void http_req(const char* method, const String& path, const uint8_t* body, size_t len, const char* ctype, const char* hk = nullptr, const char* hv = nullptr) {
+  HTTPClient h;
+  h.begin("http://127.0.0.1" + path);
+  if (hk) h.addHeader(hk, hv);
+  h.setTimeout(15000);
+  if (ctype) h.addHeader("Content-Type", ctype);
+  int code;
+  if (!strcmp(method, "GET")) code = h.GET();
+  else if (!strcmp(method, "DELETE")) code = h.sendRequest("DELETE");
+  else code = h.sendRequest(method, (uint8_t*)body, len);
+  String r = code > 0 ? h.getString() : HTTPClient::errorToString(code);
+  h.end();
+  if (r.length() > 300) r = r.substring(0, 300) + "...(" + String(r.length()) + " bytes)";
+  Serial.printf("HTTP %s %s -> %d %s\r\n", method, path.c_str(), code, r.c_str());
+}
+
+static void http_test_task(void*) {
+  http_req("GET", "/", nullptr, 0, nullptr);
+  http_req("GET", "/setup", nullptr, 0, nullptr);
+  http_req("GET", "/api/status", nullptr, 0, nullptr);
+  const char* js = "{\"labels\":[\"HTTP test\\nline 2\",{\"text\":\"mono\",\"font\":\"mono\"}],\"title\":\"http json\"}";
+  http_req("POST", "/api/save", (const uint8_t*)js, strlen(js), "application/json");
+  // 16x24 PBM: a hollow box
+  static uint8_t pbm[64 + 48];
+  int n = snprintf((char*)pbm, 64, "P4\n# test\n16 24\n");
+  for (int y = 0; y < 24; ++y) {
+    uint16_t row = (y == 0 || y == 23) ? 0xFFFF : 0x8001;
+    pbm[n + y * 2] = row >> 8; pbm[n + y * 2 + 1] = row & 0xFF;
+  }
+  http_req("POST", "/api/print", pbm, n + 48, "image/x-portable-bitmap", "X-Print", "0");
+  {
+    HTTPClient h; h.begin("http://127.0.0.1/api/save"); h.addHeader("X-Title", "box"); h.addHeader("X-Copies", "2");
+    int code = h.sendRequest("POST", pbm, n + 48); Serial.printf("HTTP POST /api/save (X-Title box, X-Copies 2) -> %d %s\r\n", code, h.getString().c_str()); h.end();
+  }
+  const char* js2 = "{\"text\":\"no print\",\"print\":false}";
+  http_req("POST", "/api/print", (const uint8_t*)js2, strlen(js2), "application/json");
+  // TDJ1 straight through: copy the newest history job
+  JobEntry e;
+  if (jobs.at(0, e)) {
+    File f = LittleFS.open(JobStore::path(e.id), "r");
+    size_t sz = f.size();
+    uint8_t* buf = (uint8_t*)malloc(sz);
+    if (buf) {
+      f.read(buf, sz);
+      http_req("POST", "/api/save", buf, sz, "application/octet-stream", "X-Source", "web");
+      free(buf);
+    }
+    f.close();
+  }
+  http_req("POST", "/api/print", (const uint8_t*)"{bad", 4, "application/json");
+  http_req("GET", "/api/jobs", nullptr, 0, nullptr);
+  if (jobs.at(0, e)) {
+    http_req("GET", "/api/jobs/" + String(e.id), nullptr, 0, nullptr);
+    http_req("DELETE", "/api/jobs/" + String(e.id), nullptr, 0, nullptr);
+  }
+  http_req("GET", "/api/jobs/99999", nullptr, 0, nullptr);
+  http_req("GET", "/api/config", nullptr, 0, nullptr);
+  Serial.println("HTTPTEST DONE");
+  vTaskDelete(nullptr);
+}
 
 static void cmd_text(const String& json, bool print) {
   PrinterSnapshot s = printer.snapshot();
@@ -106,6 +170,8 @@ void Console::run(String l) {
     String err;
     uint32_t id = jobs.add("/spool/up.bin", "serial", err);
     if (id) Serial.printf("job %lu\r\n", (unsigned long)id); else Serial.printf("add failed: %s\r\n", err.c_str());
+  } else if (cmd == "httptest") {
+    xTaskCreate(http_test_task, "httptest", 8192, nullptr, 1, nullptr);
   } else if (cmd == "btn") {
     int b = arg[0] == 'a' ? 0 : arg[0] == 'b' ? 1 : 2;
     display.press(b, arg.indexOf("hold") > 0);
