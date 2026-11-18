@@ -13,6 +13,8 @@
 #include "web_assets.h"
 
 WebUi webUi;
+String tapedeck_usb_log_text();
+void tapedeck_usb_log_clear();
 static WebServer server(80);
 static DNSServer dns;
 static bool dns_running = false;
@@ -520,6 +522,12 @@ void WebUi::begin() {
   server.on("/api/config", HTTP_GET, handle_config_get);
   server.on("/api/config", HTTP_POST, handle_config_post);
   server.on("/api/scan", HTTP_GET, handle_scan);
+  server.on("/api/usblog", HTTP_GET, []() {
+    String t = tapedeck_usb_log_text();
+    server.sendHeader("Cache-Control", "no-cache");
+    server.send(200, "text/plain", t.length() ? t : String("(empty: USB debug logging is only in the app-debug build)\n"));
+  });
+  server.on("/api/usblog", HTTP_DELETE, []() { tapedeck_usb_log_clear(); server.send(200, "text/plain", "cleared"); });
   server.on("/api/refresh", HTTP_POST, []() { printer.refresh_status(); server.send(200, "text/plain", "ok"); });
   server.on("/api/reboot", HTTP_POST, []() {
     if (!admin_ok()) return;

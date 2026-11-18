@@ -46,6 +46,26 @@ workaround) is also in, but it alone did not fix the labels. Both are marked
 "TapeDeck patch". Any other project that does bulk OUT through this library
 needs the same patch.
 
+## The lost-interrupt hang (fixed in lib/)
+
+Power-cycling the printer left TapeDeck at "no printer". The `app-debug` log
+showed enumeration stopping right after the string-descriptor SETUP: the next
+MAX3421E interrupt was never serviced. The M5 wrapper's `tuh_max3421_int_api`
+masks the INT pin's GPIO interrupt around every register access made outside
+the interrupt task (our FRAMEIRQ masking, `device_present()`), and INT is
+edge-triggered: an edge in that window is lost, INT stays low with the IRQ
+pending, and nothing services it again. Fix (`Adafruit_USBH_Host.cpp`): the
+interrupt task waits on the semaphore with a 10 ms timeout and also runs the
+handler whenever the INT pin is low. Also patched: `busy_lock` and endpoint
+state are reset on every attach/detach (`reset_xfer_state`), which alone did
+not fix it. Safety net in `printer.cpp`: a device on the port that hasn't
+enumerated for 15 s logs an event and restarts the Core (off in app-debug).
+Verified: two printer power cycles in a row re-attached in ~2 s each.
+
+`pio run -e app-debug` builds with TinyUSB logging into a 32 KB RAM ring
+buffer readable at `GET /api/usblog` (`DELETE` clears it), so USB problems
+can be debugged over Wi-Fi.
+
 ## Hardware gotchas
 
 - USB Module DIP switches: this unit is SS = CH1 (G13), INT = CH2 (G34). The
@@ -100,3 +120,4 @@ orientation right, no trailing pad after all.
 Not yet verified:
 - Chain printing ("Hold last label") on the D600.
 - D600 auto power-off while idle (the 4 s status poll may keep it awake).
+  If it does power off, it now reconnects when switched back on.

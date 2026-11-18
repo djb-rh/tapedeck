@@ -52,7 +52,7 @@
 #endif
 
 // Debug TinyUSB with Serial1
-#if CFG_TUSB_DEBUG
+#if CFG_TUSB_DEBUG && !defined(CFG_TUSB_DEBUG_PRINTF)  // TapeDeck: overridable
 #define CFG_TUSB_DEBUG_PRINTF log_printf
 #endif
 

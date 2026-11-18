@@ -265,9 +265,14 @@ void Printer::run() {
         if (printerUsb.device_present()) {
           if (!present_since) present_since = millis();
           else if (millis() - present_since > 15000) {
+#ifdef TAPEDECK_NO_USB_RESTART
+            events.add("USB device present but not enumerating for 15 s (debug build: not restarting)");
+            present_since = millis() + 3600000UL;  // say it once an hour
+#else
             events.add("USB device present but not enumerating for 15 s; restarting");
             delay(200);
             ESP.restart();
+#endif
           }
         } else {
           present_since = 0;

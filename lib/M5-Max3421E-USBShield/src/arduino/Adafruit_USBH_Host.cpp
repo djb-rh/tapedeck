@@ -196,9 +196,18 @@ static void max3421_intr_task(void *param) {
     (void)param;
 
     while (1) {
-        xSemaphoreTake(max3421_intr_sem, portMAX_DELAY);
-        tuh_int_handler_esp32(1, false);
-        vTaskDelay(5 / portTICK_PERIOD_MS);
+        // TapeDeck patch: don't rely on the falling edge alone. Register
+        // access from outside this task masks the pin interrupt
+        // (tuh_max3421_int_api), and an edge arriving in that window is lost;
+        // INT then stays low with an IRQ pending and nothing ever services
+        // it (a re-plugged printer hung mid-enumeration). INT is held low
+        // while any enabled IRQ is pending, so also poll the pin level.
+        bool edge = xSemaphoreTake(max3421_intr_sem, 10 / portTICK_PERIOD_MS) == pdTRUE;
+        const int pin = M5_USBH_Host::_instance ? M5_USBH_Host::_instance->_intr : -1;
+        if (edge || (pin >= 0 && digitalRead(pin) == LOW)) {
+            tuh_int_handler_esp32(1, false);
+            vTaskDelay(5 / portTICK_PERIOD_MS);
+        }
     }
 }
 
