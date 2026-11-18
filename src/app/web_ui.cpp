@@ -137,12 +137,16 @@ static void handle_status() {
     t["print_dots"] = g ? g->print_pins : 0;
     t["dpi"] = pt::kDpi;
     t["media"] = pt::media_type_name(st.media_type());
-    t["color"] = pt::tape_color_name(st.tape_color());
-    t["ink"] = pt::text_color_name(st.text_color());
-    t["color_css"] = tape_css(st.tape_color());
-    t["ink_css"] = ink_css(st.text_color());
-    t["color_code"] = st.tape_color();
-    t["ink_code"] = st.text_color();
+    t["color"] = pt::tape_color_name(s.tape_color);
+    t["ink"] = pt::text_color_name(s.ink_color);
+    t["color_css"] = tape_css(s.tape_color);
+    t["ink_css"] = ink_css(s.ink_color);
+    t["color_code"] = s.tape_color;
+    t["ink_code"] = s.ink_color;
+    // The PT-D600 always reports white/black; colours are the user's choice per cassette type.
+    t["colors_from"] = s.colors_user ? "user" : "printer";
+    t["colors_confirmed"] = s.colors_confirmed;
+    t["epoch"] = s.tape_epoch;
     char raw[65];
     for (int i = 0; i < 32; ++i) snprintf(raw + i * 2, 3, "%02x", st.raw[i]);
     p["status_raw"] = raw;
@@ -177,6 +181,43 @@ static void handle_status() {
   dv["chain"] = settings.chain;
   dv["margin_mm"] = settings.margin_mm10 / 10.0f;
   dv["history_max"] = settings.history_max;
+  send_json(200, d);
+}
+
+// GET /api/tape: colour presets. POST /api/tape (tape=CODE&ink=CODE, or
+// preset=INDEX): set the loaded cassette's colours.
+static void handle_tape_get() {
+  JsonDocument d;
+  JsonArray a = d["presets"].to<JsonArray>();
+  for (int i = 0; i < pt::kColorPresetCount; ++i) {
+    JsonObject o = a.add<JsonObject>();
+    o["name"] = pt::kColorPresets[i].name;
+    o["tape"] = pt::kColorPresets[i].tape;
+    o["ink"] = pt::kColorPresets[i].ink;
+    o["tape_css"] = tape_css(pt::kColorPresets[i].tape);
+    o["ink_css"] = ink_css(pt::kColorPresets[i].ink);
+  }
+  send_json(200, d);
+}
+
+static void handle_tape_post() {
+  if (!print_ok()) return;
+  int tape = -1, ink = -1;
+  if (server.hasArg("preset")) {
+    int i = server.arg("preset").toInt();
+    if (i >= 0 && i < pt::kColorPresetCount) { tape = pt::kColorPresets[i].tape; ink = pt::kColorPresets[i].ink; }
+  } else if (server.hasArg("tape") && server.hasArg("ink")) {
+    tape = server.arg("tape").toInt();
+    ink = server.arg("ink").toInt();
+  }
+  if (tape < 1 || tape > 255 || ink < 1 || ink > 255) { send_err(400, "give preset=N, or tape=CODE&ink=CODE"); return; }
+  String err;
+  if (!printer.set_colors(tape, ink, err)) { send_err(409, err); return; }
+  events.add("Tape colours set: %s on %s", pt::text_color_name(ink), pt::tape_color_name(tape));
+  JsonDocument d;
+  d["ok"] = true;
+  d["color"] = pt::tape_color_name(tape);
+  d["ink"] = pt::text_color_name(ink);
   send_json(200, d);
 }
 
@@ -425,6 +466,8 @@ void WebUi::begin() {
   server.on("/setup", HTTP_GET, []() { send_asset("text/html", WEB_SETUP_HTML, WEB_SETUP_HTML_LEN); });
   server.on("/api/status", HTTP_GET, handle_status);
   server.on("/api/jobs", HTTP_GET, handle_jobs);
+  server.on("/api/tape", HTTP_GET, handle_tape_get);
+  server.on("/api/tape", HTTP_POST, handle_tape_post);
   server.on(UriBraces("/api/jobs/{}"), HTTP_GET, handle_job_get);
   server.on(UriBraces("/api/jobs/{}"), HTTP_DELETE, handle_job_delete);
   server.on(UriBraces("/api/jobs/{}/print"), HTTP_POST, handle_job_print);

@@ -131,7 +131,7 @@ void Console::run(String l) {
                   app_ip().c_str(), app.ap_mode, app.sta_connected, ESP.getFreeHeap(), jobs.count());
     if (s.status_valid)
       Serial.printf("tape %u mm %s on %s, err '%s', last job %lu ok %d '%s'\r\n", s.st.width_mm(),
-                    pt::text_color_name(s.st.text_color()), pt::tape_color_name(s.st.tape_color()), s.printer_error,
+                    pt::text_color_name(s.ink_color), pt::tape_color_name(s.tape_color), s.printer_error,
                     (unsigned long)s.last_job_id, s.last_ok, s.last_error);
   } else if (cmd == "jobs") {
     JobEntry e;

@@ -1,6 +1,7 @@
 // Core Basic screen: printer + tape status, history browser, reprint.
 //   A = newer job, B = print the shown job (press twice), C = older job.
-//   Hold A = refresh printer status, hold C = jump to newest.
+//   Hold A = refresh printer status, hold B = info screen (QR code for the
+//   editor, tape colour picker), hold C = jump to newest.
 #pragma once
 #include <Arduino.h>
 
@@ -22,6 +23,10 @@ class Display {
   void draw_setup(bool force);
   void handle_buttons();
   void do_print();
+  void open_info();
+  void close_info(bool save);
+  void draw_info();
+  void draw_info_footer();
 
   bool lit_ = true;
   uint32_t last_activity_ms_ = 0;
@@ -37,6 +42,9 @@ class Display {
   bool was_setup_ = false;
   bool force_all_ = true;
   bool setup_dismissed_ = false;
+  bool info_ = false, info_dirty_ = false, info_have_tape_ = false;
+  int info_preset_ = 0;
+  uint32_t info_until_ = 0;
 };
 
 extern Display display;

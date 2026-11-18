@@ -17,6 +17,13 @@ header nav a:hover{color:var(--text)}
 .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--chip);font-size:13px;white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
 .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--err)}.dot.busy{background:var(--accent)}
+button.pill{border:1px solid transparent;color:var(--text);cursor:pointer}
+button.pill:hover{border-color:var(--dim)}
+button.pill.ask{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 18%,var(--chip))}
+.presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:10px 0}
+.presets button{display:flex;align-items:center;gap:8px;text-align:left;padding:8px}
+.presets button.on{outline:2px solid var(--accent)}
+.presets .swatch{width:40px;height:22px;font-size:11px}
 .swatch{width:28px;height:15px;border-radius:3px;border:1px solid rgba(0,0,0,.25);display:inline-flex;align-items:center;justify-content:center;font:700 9px/1 sans-serif}
 main{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:16px;padding:16px;max-width:1300px;margin:0 auto}
 @media (max-width:900px){main{grid-template-columns:minmax(0,1fr);padding:12px}}
@@ -67,7 +74,7 @@ pre{white-space:pre-wrap;font-size:12px;background:var(--chip);padding:8px;borde
 <header>
   <h1>TapeDeck</h1>
   <span class="pill" id="st"><span class="dot" id="stdot"></span><span id="sttext">Connecting…</span></span>
-  <span class="pill"><span class="swatch" id="sw">Aa</span><span id="tapetext">–</span></span>
+  <button class="pill" id="tapechip" title="Tape colours (the PT-D600 can't detect them; click to set)"><span class="swatch" id="sw">Aa</span><span id="tapetext">–</span></button>
   <span class="pill" title="Tape width the editor lays labels out for">Layout
     <select id="tapesel" style="padding:1px 4px">
       <option value="auto">as loaded</option><option value="4">3.5 mm</option><option value="6">6 mm</option><option value="9">9 mm</option><option value="12">12 mm</option><option value="18">18 mm</option><option value="24">24 mm</option>
@@ -106,6 +113,13 @@ pre{white-space:pre-wrap;font-size:12px;background:var(--chip);padding:8px;borde
   <p class="small">One label per line. Put <code>|</code> inside a line for a second text line. New labels copy the style of the selected label.</p>
   <textarea id="bulktext" rows="10" placeholder="136078-1015|27C512 U5&#10;136078-1016|27C512 U6"></textarea>
   <div class="row"><span class="spacer"></span><button id="bulkcancel">Cancel</button><button class="primary" id="bulkok">Add</button></div>
+</dialog>
+
+<dialog id="tapedlg">
+  <h3 style="margin-top:0">Tape colours</h3>
+  <p class="small">The PT-D600 reports the tape's width and type but not its colours, so pick them here. TapeDeck remembers the choice for this cassette type and asks again when it sees the cover open or the cassette change.</p>
+  <div class="presets" id="presets"></div>
+  <div class="row"><span class="small" id="tapemsg"></span><span class="spacer"></span><button id="tapeclose">Close</button></div>
 </dialog>
 
 <dialog id="apidlg">
@@ -517,11 +531,13 @@ function showStatus() {
   else if (s.state === "ready" && s.printer.label_held) t = "Ready · last label held";
   if (s.state === "ready" && !s.job.last_ok && s.job.last_error) { t = "Last job failed"; c = "warn"; }
   $("sttext").textContent = t; $("stdot").className = "dot " + c;
+  $("tapechip").classList.toggle("ask", !!(s.tape && s.tape.width_mm && !s.tape.colors_confirmed));
   $("st").title = s.job.last_error ? "Last job: " + s.job.last_error : "";
   const sw = $("sw");
   if (s.tape && s.tape.width_mm) {
     sw.style.background = s.tape.color_css; sw.style.color = s.tape.ink_css;
-    $("tapetext").textContent = `${s.tape.width_mm === 4 ? 3.5 : s.tape.width_mm} mm · ${s.tape.ink} on ${s.tape.color}`;
+    $("tapetext").textContent = `${s.tape.width_mm === 4 ? 3.5 : s.tape.width_mm} mm · ${s.tape.ink} on ${s.tape.color}` +
+      (s.tape.colors_confirmed ? "" : " · tape changed? set colours");
   } else {
     sw.style.background = "transparent"; sw.style.color = "var(--dim)";
     $("tapetext").textContent = s.state === "no_printer" || s.state === "no_module" ? "no printer" : "no tape";
@@ -647,6 +663,32 @@ curl http://${h}/api/jobs        # history; POST /api/jobs/ID/print reprints`;
   $("apidlg").showModal();
 };
 $("apiclose").onclick = () => $("apidlg").close();
+$("tapeclose").onclick = () => $("tapedlg").close();
+$("tapechip").onclick = async () => {
+  $("tapemsg").textContent = "";
+  const box = $("presets");
+  box.textContent = "Loading…";
+  $("tapedlg").showModal();
+  let list;
+  try { list = (await (await fetch("/api/tape")).json()).presets; } catch (e) { box.textContent = "TapeDeck offline"; return; }
+  box.textContent = "";
+  list.forEach((p, i) => {
+    const on = status && status.tape && status.tape.color_code === p.tape && status.tape.ink_code === p.ink && status.tape.colors_from === "user";
+    const sw = el("span", {class: "swatch"}, "Aa");
+    sw.style.background = p.tape_css; sw.style.color = p.ink_css;
+    box.append(el("button", {class: on ? "on" : "", onclick: async () => {
+      try {
+        const r = await fetch("/api/tape", {method: "POST", body: new URLSearchParams({preset: i})});
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error);
+        $("tapedlg").close();
+        toast(`Tape set to ${p.name}`);
+        const s = await (await fetch("/api/status", {cache: "no-store"})).json();
+        status = s; showStatus(); refresh(); loadHistory();
+      } catch (e) { $("tapemsg").textContent = "Failed: " + e.message; }
+    }}, sw, p.name));
+  });
+};
 let rt;
 window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(refresh, 150); });
 document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "p") { e.preventDefault(); doPrint(); } });

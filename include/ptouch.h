@@ -45,6 +45,13 @@ const char* tape_color_name(uint8_t c);
 const char* text_color_name(uint8_t c);
 const char* model_name(uint8_t m);
 const char* status_type_name(uint8_t t);
+// Common TZe colour combinations, for picking the loaded cassette's colours
+// on printers (like the PT-D600) that don't report them.
+struct ColorPreset { uint8_t tape, ink; const char* name; };
+extern const ColorPreset kColorPresets[];
+extern const int kColorPresetCount;
+int find_color_preset(uint8_t tape, uint8_t ink);  // -1 if not a preset
+
 // Human-readable error text for err1/err2 (empty string when none).
 void describe_errors(const Status& s, char* out, size_t n);
 

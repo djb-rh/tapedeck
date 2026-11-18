@@ -107,6 +107,22 @@ const char* status_type_name(uint8_t t) {
   }
 }
 
+const ColorPreset kColorPresets[] = {
+  {0x01, 0x08, "Black on White"},   {0x06, 0x08, "Black on Yellow"}, {0x03, 0x08, "Black on Clear"},
+  {0x04, 0x08, "Black on Red"},     {0x05, 0x08, "Black on Blue"},   {0x07, 0x08, "Black on Green"},
+  {0x22, 0x08, "Black on Silver"},  {0x40, 0x08, "Black on Orange"}, {0x41, 0x08, "Black on Fl. Yellow"},
+  {0x01, 0x04, "Red on White"},     {0x01, 0x05, "Blue on White"},   {0x08, 0x01, "White on Black"},
+  {0x05, 0x01, "White on Blue"},    {0x04, 0x01, "White on Red"},    {0x07, 0x01, "White on Green"},
+  {0x03, 0x01, "White on Clear"},   {0x08, 0x0A, "Gold on Black"},   {0x03, 0x0A, "Gold on Clear"},
+};
+const int kColorPresetCount = sizeof kColorPresets / sizeof kColorPresets[0];
+
+int find_color_preset(uint8_t tape, uint8_t ink) {
+  for (int i = 0; i < kColorPresetCount; ++i)
+    if (kColorPresets[i].tape == tape && kColorPresets[i].ink == ink) return i;
+  return -1;
+}
+
 void describe_errors(const Status& s, char* out, size_t n) {
   static const char* e1[8] = {"No tape", "End of tape", "Cutter jam", "Weak battery",
                               "Printer in use", nullptr, "High-voltage adapter", nullptr};

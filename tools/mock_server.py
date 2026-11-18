@@ -12,6 +12,7 @@ PORT = int(args[0]) if args else 8765
 OUT = args[1] if len(args) > 1 else "/tmp"
 TAPE = int(sys.argv[sys.argv.index("--tape") + 1]) if "--tape" in sys.argv else 12
 GEOM = {4: 24, 6: 32, 9: 50, 12: 70, 18: 112, 24: 128}
+TAPECOL = {"cur": ("#fbfbf6", "#111111", "White", "Black")}
 jobs = []  # newest first: dict(id, data, meta)
 state = {"next": 1, "done": 0, "labels": 0, "last": 0}
 
@@ -38,8 +39,9 @@ class H(BaseHTTPRequestHandler):
         if p == "/setup": return self.send(200, open(os.path.join(ROOT, "web/setup.html"), "rb").read(), "text/html")
         if p == "/api/status":
             return self.send(200, {"state": "ready", "printer": {"product": "PT-D600", "serial": "MOCK", "error": "", "label_held": False},
-                "tape": {"width_mm": TAPE, "print_dots": GEOM[TAPE], "dpi": 180, "media": "Laminated", "color": "White", "ink": "Black",
-                         "color_css": "#fbfbf6", "ink_css": "#111111"},
+                "tape": {"width_mm": TAPE, "print_dots": GEOM[TAPE], "dpi": 180, "media": "Laminated",
+                         "color_css": TAPECOL["cur"][0], "ink_css": TAPECOL["cur"][1], "color": TAPECOL["cur"][2], "ink": TAPECOL["cur"][3],
+                         "colors_confirmed": TAPECOL.get("set", False) or len(TAPECOL) > 1, "colors_from": "user"},
                 "job": {"id": 0, "title": "", "done": 0, "total": 0, "queued": 0, "last_id": state["last"], "last_ok": True,
                         "last_error": "", "jobs_done": state["done"], "labels_done": state["labels"]},
                 "device": {"version": "mock", "hostname": "tapedeck", "ip": "127.0.0.1", "ap_mode": False, "ssid": "mock", "rssi": -50,
@@ -55,6 +57,10 @@ class H(BaseHTTPRequestHandler):
                                    "tz": "EST5EDT", "ntp": "pool.ntp.org", "margin_mm": 2, "chain": False, "history_max": 25,
                                    "disp_timeout_s": 600, "brightness": 140})
         if p == "/api/events": return self.send(200, ["mock event"])
+        if p == "/api/tape":
+            return self.send(200, {"presets": [{"name": n, "tape": t, "ink": i, "tape_css": tc, "ink_css": ic} for n, t, i, tc, ic in [
+                ("Black on White", 1, 8, "#fbfbf6", "#111111"), ("Black on Yellow", 6, 8, "#f7d417", "#111111"),
+                ("White on Black", 8, 1, "#1a1a1a", "#ffffff"), ("Red on White", 1, 4, "#fbfbf6", "#d8262c")]]})
         if p == "/api/scan": return self.send(200, {"networks": [{"ssid": "Example", "rssi": -48, "open": False}]})
         self.send(404, b"not found", "text/plain")
     def do_POST(self):
@@ -76,6 +82,13 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, {"ok": True, "queued": True, "job": meta})
         if p.endswith("/print"): return self.send(200, {"ok": True, "queued": True})
         if p == "/api/config": return self.send(200, {"ok": True})
+        if p == "/api/tape":
+            q = dict(x.split("=") for x in data.decode().split("&") if "=" in x)
+            TAPECOL.update({"0": ("#fbfbf6", "#111111", "White", "Black"), "1": ("#f7d417", "#111111", "Yellow", "Black"),
+                            "2": ("#1a1a1a", "#ffffff", "Black", "White"), "3": ("#fbfbf6", "#d8262c", "White", "Red")}[q.get("preset", "0")] and
+                           {"cur": {"0": ("#fbfbf6", "#111111", "White", "Black"), "1": ("#f7d417", "#111111", "Yellow", "Black"),
+                                    "2": ("#1a1a1a", "#ffffff", "Black", "White"), "3": ("#fbfbf6", "#d8262c", "White", "Red")}[q.get("preset", "0")]})
+            return self.send(200, {"ok": True})
         self.send(404, b"not found", "text/plain")
     def do_DELETE(self):
         jid = int(self.path.split("/")[3])

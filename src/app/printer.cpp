@@ -1,5 +1,6 @@
 #include "printer.h"
 #include <LittleFS.h>
+#include <Preferences.h>
 #include <stdarg.h>
 #include <vector>
 #include "jobs.h"
@@ -64,6 +65,68 @@ void Printer::update_live_error() {
   else snap_.printer_error[0] = 0;
 }
 
+static void color_key(uint8_t w, uint8_t m, char* k) { snprintf(k, 8, "c%02x%02x", w, m); }
+
+void Printer::load_colors_locked() {
+  // caller holds mu_; sig_w_/sig_m_ describe the loaded cassette
+  Preferences p;
+  uint16_t v = 0;
+  char k[8];
+  color_key(sig_w_, sig_m_, k);
+  if (p.begin("tapecol", true)) { v = p.getUShort(k, 0); p.end(); }
+  if (v) {
+    snap_.tape_color = v >> 8;
+    snap_.ink_color = v & 0xFF;
+    snap_.colors_user = true;
+  } else {
+    snap_.tape_color = snap_.st.tape_color();
+    snap_.ink_color = snap_.st.text_color();
+    snap_.colors_user = false;
+  }
+}
+
+// After every new status block: notice cassette changes (width/media change,
+// or the cover opened and closed again) and pick the colours to show.
+void Printer::on_status_locked() {
+  const pt::Status& s = snap_.st;
+  const bool open = s.err2() & 0x10;
+  const bool first = sig_w_ == 0xFF;
+  bool changed = s.width_mm() != sig_w_ || s.media_type() != sig_m_;
+  if (open) cover_open_ = true;
+  if (!open && cover_open_) { cover_open_ = false; changed = true; }
+  if (!changed) return;
+  sig_w_ = s.width_mm();
+  sig_m_ = s.media_type();
+  load_colors_locked();
+  if (!first) {
+    snap_.tape_epoch++;
+    snap_.colors_confirmed = !s.width_mm();  // nothing to confirm with no tape
+    events.add("Tape changed: %u mm %s, colours %s", s.width_mm(), pt::media_type_name(s.media_type()),
+               snap_.colors_user ? "remembered (check them)" : "unknown");
+  } else {
+    // At boot assume the cassette is the one last confirmed for this type.
+    snap_.colors_confirmed = snap_.colors_user || !s.width_mm();
+  }
+  bump();
+}
+
+bool Printer::set_colors(uint8_t tape, uint8_t ink, String& err) {
+  PLock l(mu_);
+  if (!snap_.status_valid || !snap_.st.width_mm()) { err = "no tape loaded"; return false; }
+  char k[8];
+  color_key(sig_w_, sig_m_, k);
+  Preferences p;
+  if (!p.begin("tapecol", false)) { err = "settings storage failed"; return false; }
+  p.putUShort(k, (uint16_t)(tape << 8 | ink));
+  p.end();
+  snap_.tape_color = tape;
+  snap_.ink_color = ink;
+  snap_.colors_user = true;
+  snap_.colors_confirmed = true;
+  bump();
+  return true;
+}
+
 bool Printer::read_status(pt::Status& s, uint32_t timeout_ms) {
   uint8_t buf[64];
   uint32_t t0 = millis();
@@ -87,6 +150,7 @@ bool Printer::query_status(uint32_t timeout_ms) {
     snap_.status_valid = true;
     status_ms_ = millis();
     update_live_error();
+    on_status_locked();
     if (snap_.state != PState::PRINTING) snap_.state = s.has_error() ? PState::ERROR : PState::IDLE;
     if (changed) bump();
   }
@@ -119,6 +183,8 @@ void Printer::run() {
         snap_.status_valid = false;
         snap_.product[0] = 0;
         snap_.label_held = false;
+        sig_w_ = sig_m_ = 0xFF;  // next attach: treat like a boot
+        cover_open_ = false;
         update_live_error();
       }
       bump();
@@ -248,6 +314,7 @@ void Printer::print_job(uint32_t id) {
       snap_.status_valid = true;
       status_ms_ = millis();
       update_live_error();
+      on_status_locked();
       if (st.status_type() == pt::ST_PRINT_DONE) { ++pages_done; snap_.pages_done = pages_done; }
       if (st.status_type() == pt::ST_ERROR || st.has_error()) { fail = true; }
       bump();

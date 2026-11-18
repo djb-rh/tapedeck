@@ -65,12 +65,28 @@ the setup screen to see the job history.
 | Button | Press | Hold |
 | --- | --- | --- |
 | A (left) | newer job | refresh the printer status |
-| B (middle) | print the job shown (press twice to confirm) | |
+| B (middle) | print the job shown (press twice to confirm) | info screen |
 | C (right) | older job | jump to the newest job |
 
 The screen shows the loaded tape as a coloured swatch with its width and
 colours, the printer state (Ready, Printing 2 of 5, Cover open ...), and a
 preview of the selected history job.
+
+Holding B opens the info screen: a QR code for the label editor (or for
+joining the setup network), the address and Wi-Fi details, and the tape colour
+picker. There, A and C step through the colour presets, B saves, and holding B
+leaves without saving.
+
+## Tape colours
+
+The PT-D600 reports the cassette's width and type but always reports its
+colours as black on white. Tell TapeDeck the colours once per cassette type,
+either by clicking the tape chip at the top of the web page or from the info
+screen on the Core. It remembers them per width + type and goes back to
+asking ("tape changed? set colours", "New tape? Hold B: colours") when it
+sees the cover open and close or the cassette type change. Two cassettes of
+the same width and type look identical to the printer, so after a swap
+between those, check the colours.
 
 ## Tape waste
 
@@ -93,6 +109,8 @@ held label comes out when the next job prints.
 | GET | `/api/jobs/ID` | a job file (TDJ1) |
 | POST | `/api/jobs/ID/print` | reprint |
 | DELETE | `/api/jobs/ID` | remove from the history |
+| GET | `/api/tape` | colour presets |
+| POST | `/api/tape` | set the loaded cassette's colours: `preset=N`, or `tape=CODE&ink=CODE` (Brother codes) |
 
 `/api/print` takes three kinds of body, told apart by their first bytes:
 

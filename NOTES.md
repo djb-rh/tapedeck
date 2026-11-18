@@ -12,8 +12,13 @@ Read this before changing the USB code or the job format.
   raster lines, `0x0C` between pages, `0x1A` after the last.
 - 128 pins, 180 dpi. Printable pins per tape: 3.5 mm 24 (offset 52), 6 mm 32
   (48), 9 mm 50 (39), 12 mm 70 (29), 18 mm 112 (8), 24 mm 128 (0).
-- Status block (`ESC i S`, 32 bytes) model byte 0x6A. The user's 12 mm black-on-white
-  TZe reported media type 0x03 "non-laminated", tape colour 0x01, ink 0x08.
+- Status block (`ESC i S`, 32 bytes) model byte 0x6A. **The D600 does not detect
+  tape colour**: a black-on-white cassette (media 0x03) and a black-on-yellow
+  laminated TZe (media 0x01) both reported tape 0x01 / ink 0x08. The media byte
+  did change, so width + media is the cassette signature. User-chosen colours
+  live in NVS namespace `tapecol`, key `cWWMM` (hex width, media) = tape<<8|ink.
+  Cover open (err2 bit 4) then closed, or a signature change, marks the colours
+  unconfirmed until the user picks (or re-saves) them.
 - Orientation: MSB of byte 0 of a raster line is the top of the label as read;
   no mirroring.
 - During a job the printer sends a status block per phase change and one
@@ -85,9 +90,10 @@ history (device-rendered and browser-made jobs), multi-label batches with
 cuts, the Core screen and buttons, captive-portal AP + setup page served, the
 HTTP API (via the loopback self-test).
 
+2026-11-18 evening: on the user's Wi-Fi as tapedeck.local; web printing confirmed
+by the user, OTA updates work (`curl -F fw=@... http://IP/update`), screen
+orientation right, no trailing pad after all.
+
 Not yet verified:
-- The device on a real Wi-Fi network (mDNS, editor from a phone/laptop, OTA).
 - Chain printing ("Hold last label") on the D600.
-- The trailing-space minimum on short labels.
-- Display orientation on the physical screen.
 - D600 auto power-off while idle (the 4 s status poll may keep it awake).

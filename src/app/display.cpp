@@ -96,7 +96,7 @@ void Display::draw_tape(bool force) {
   // cassette swatch
   const int sx = 8, sy = TAPE_Y + 4, sw = 70, sh = TAPE_H - 8;
   if (s.status_valid && s.st.width_mm()) {
-    uint32_t tc = tape_rgb(s.st.tape_color()), ic = ink_rgb(s.st.text_color());
+    uint32_t tc = tape_rgb(s.tape_color), ic = ink_rgb(s.ink_color);
     int band = 12 + s.st.width_mm() * 1.4;  // tape band height scaled by width
     if (band > sh) band = sh;
     d.fillRoundRect(sx, sy, sw, sh, 6, rgb(0x2b333c));
@@ -132,11 +132,12 @@ void Display::draw_tape(bool force) {
     case PState::IDLE:
       if (s.queued) { snprintf(statebuf, sizeof statebuf, "%d queued", s.queued); state = statebuf; scol = rgb(C_ACCENT); }
       else if (s.label_held) { state = "Ready - last label held"; scol = rgb(C_WARN); }
+      else if (!s.colors_confirmed) { state = "New tape? Hold B: colours"; scol = rgb(C_WARN); }
       break;
   }
   if (s.status_valid && s.st.width_mm()) {
     snprintf(l1, sizeof l1, "%u mm %s", s.st.width_mm(), s.st.media_type() == 0x01 || s.st.media_type() == 0x03 ? "tape" : pt::media_type_name(s.st.media_type()));
-    snprintf(l2, sizeof l2, "%s on %s", pt::text_color_name(s.st.text_color()), pt::tape_color_name(s.st.tape_color()));
+    snprintf(l2, sizeof l2, "%s on %s%s", pt::text_color_name(s.ink_color), pt::tape_color_name(s.tape_color), s.colors_confirmed ? "" : "?");
   } else if (s.state == PState::NO_PRINTER || s.state == PState::NO_MODULE) {
     snprintf(l1, sizeof l1, "%s", s.state == PState::NO_MODULE ? "No USB host" : "No printer");
     snprintf(l2, sizeof l2, "%s", s.state == PState::NO_MODULE ? "Check module + DIP switches" : "Plug in + power on the P-touch");
@@ -233,7 +234,7 @@ void Display::draw_job(bool force) {
   JobEntry e;
   bool have = jobs.at(sel_, e);
   PrinterSnapshot s = printer.snapshot();
-  uint8_t tc = s.status_valid ? s.st.tape_color() : 0x01, ic = s.status_valid ? s.st.text_color() : 0x08;
+  uint8_t tc = s.status_valid ? s.tape_color : 0x01, ic = s.status_valid ? s.ink_color : 0x08;
   // signature: selection, job, count, printed count, tape colours, time bucket
   uint32_t sig = (have ? e.id * 2654435761u : 1) ^ (n << 24) ^ (sel_ << 16) ^ (e.printed << 8) ^ (tc << 4) ^ ic ^
                  (uint32_t)(time(nullptr) / 60);
@@ -337,8 +338,118 @@ void Display::draw_setup(bool force) {
   d.setFont(&fonts::Font2);
   d.setTextColor(rgb(C_DIM));
   d.setTextDatum(middle_center);
-  d.drawString("Any button: job history and reprint", W / 2, FOOT_Y + (H - FOOT_Y) / 2);
+  d.drawString("Any button: job history  -  hold B: this screen", W / 2, FOOT_Y + (H - FOOT_Y) / 2);
   last_footer_ = "";
+}
+
+// ------------------------------------------------------------- info screen (hold B)
+// QR code for the web editor, network details, and the tape colour picker
+// (A / C step through the presets, B saves and goes back).
+
+void Display::open_info() {
+  info_ = true;
+  info_until_ = millis() + 60000;
+  PrinterSnapshot s = printer.snapshot();
+  info_have_tape_ = s.status_valid && s.st.width_mm();
+  info_preset_ = pt::find_color_preset(s.tape_color, s.ink_color);
+  if (info_preset_ < 0) info_preset_ = 0;
+  info_dirty_ = true;
+}
+
+void Display::close_info(bool save) {
+  if (save && info_have_tape_) {
+    String err;
+    const pt::ColorPreset& p = pt::kColorPresets[info_preset_];
+    if (printer.set_colors(p.tape, p.ink, err)) {
+      events.add("Tape colours set on the Core: %s", p.name);
+      toast_ = String("Tape set to ") + p.name;
+    } else {
+      toast_ = err;
+    }
+    toast_until_ = millis() + 2500;
+  }
+  info_ = false;
+  force_all_ = true;
+}
+
+void Display::draw_info() {
+  if (!info_dirty_) return;
+  info_dirty_ = false;
+  auto& d = M5.Display;
+  d.fillRect(0, TAPE_Y, W, FOOT_Y - TAPE_Y, rgb(C_BG));
+  String url = app.sta_connected ? "http://" + WiFi.localIP().toString() + "/" : String("");
+  String qr = app.sta_connected ? url : "WIFI:S:" + app.ap_ssid + ";T:nopass;;";
+  d.qrcode(qr.c_str(), 8, TAPE_Y + 2, 112, 3);
+  const int tx = 128;
+  d.setTextDatum(top_left);
+  d.setFont(&fonts::FreeSansBold9pt7b);
+  d.setTextColor(rgb(C_TEXT));
+  d.drawString(app.sta_connected ? "Label editor" : "Join to set up", tx, TAPE_Y + 2);
+  d.setFont(&fonts::Font2);
+  d.setTextColor(rgb(C_ACCENT));
+  if (app.sta_connected) {
+    d.drawString((settings.hostname + ".local").c_str(), tx, TAPE_Y + 24);
+    d.drawString(url.c_str(), tx, TAPE_Y + 40);
+    d.setTextColor(rgb(C_DIM));
+    d.drawString((WiFi.SSID() + "  " + String(WiFi.RSSI()) + " dBm").c_str(), tx, TAPE_Y + 58);
+  } else {
+    d.drawString(app.ap_ssid.c_str(), tx, TAPE_Y + 24);
+    d.drawString(("http://" + WiFi.softAPIP().toString() + "/setup").c_str(), tx, TAPE_Y + 40);
+    d.setTextColor(rgb(C_DIM));
+    d.drawString(settings.wifi_ssid.length() ? ("joining " + settings.wifi_ssid).c_str() : "no network saved", tx, TAPE_Y + 58);
+  }
+  d.setTextColor(rgb(C_DIM));
+  d.drawString("TapeDeck " TAPEDECK_VERSION, tx, TAPE_Y + 76);
+  d.drawString("Setup: /setup", tx, TAPE_Y + 92);
+  // colour picker
+  const int py = TAPE_Y + 122;
+  d.drawFastHLine(8, py - 6, W - 16, rgb(0x2b333c));
+  d.setFont(&fonts::Font2);
+  d.setTextColor(rgb(C_DIM));
+  d.drawString("Tape colours (the printer can't tell)", 8, py);
+  if (!info_have_tape_) {
+    d.setTextColor(rgb(C_WARN));
+    d.drawString("No tape loaded", 8, py + 22);
+    return;
+  }
+  const pt::ColorPreset& p = pt::kColorPresets[info_preset_];
+  const int sx = 8, sy = py + 20, sw = 70, sh = 36;
+  d.fillRoundRect(sx, sy, sw, sh, 5, rgb(0x2b333c));
+  d.fillRect(sx, sy + 6, sw, sh - 12, tape_rgb(p.tape));
+  d.setFont(&fonts::FreeSansBold9pt7b);
+  d.setTextColor(ink_rgb(p.ink));
+  d.setTextDatum(middle_center);
+  d.drawString("Aa", sx + sw / 2, sy + sh / 2 + 1);
+  d.setTextDatum(top_left);
+  d.setFont(&fonts::FreeSansBold12pt7b);
+  d.setTextColor(rgb(C_TEXT));
+  d.drawString(p.name, sx + sw + 10, sy + 2);
+  d.setFont(&fonts::Font2);
+  d.setTextColor(rgb(C_DIM));
+  char n[16];
+  snprintf(n, sizeof n, "%d / %d", info_preset_ + 1, pt::kColorPresetCount);
+  d.drawString(n, sx + sw + 10, sy + 26);
+}
+
+void Display::draw_info_footer() {
+  String f = info_have_tape_ ? "info:colours" : "info:back";
+  if (f == last_footer_) return;
+  last_footer_ = f;
+  auto& d = M5.Display;
+  d.fillRect(0, FOOT_Y, W, H - FOOT_Y, rgb(C_PANEL));
+  d.setFont(&fonts::FreeSansBold9pt7b);
+  d.setTextDatum(middle_center);
+  const int cy = FOOT_Y + (H - FOOT_Y) / 2 + 1;
+  d.setTextColor(rgb(C_TEXT));
+  if (info_have_tape_) {
+    d.drawString("< Colour", 65, cy);
+    d.setTextColor(rgb(C_ACCENT));
+    d.drawString("Save", 160, cy);
+    d.setTextColor(rgb(C_TEXT));
+    d.drawString("Colour >", 255, cy);
+  } else {
+    d.drawString("Back", 160, cy);
+  }
 }
 
 // ------------------------------------------------------------- input
@@ -356,6 +467,15 @@ void Display::do_print() {
 
 void Display::press(int btn, bool hold) {
   wake();
+  if (info_) {
+    info_until_ = millis() + 60000;
+    if (btn == 1) { close_info(!hold); return; }
+    if (!info_have_tape_) { close_info(false); return; }
+    info_preset_ = (info_preset_ + (btn == 0 ? pt::kColorPresetCount - 1 : 1)) % pt::kColorPresetCount;
+    info_dirty_ = true;
+    return;
+  }
+  if (btn == 1 && hold) { confirm_until_ = 0; open_info(); return; }
   if (!setup_dismissed_ && app.ap_mode && !app.sta_connected && settings.wifi_ssid.isEmpty()) {
     setup_dismissed_ = true;  // first press on the setup screen shows the job history
     return;
@@ -384,7 +504,8 @@ void Display::handle_buttons() {
   }
   if (M5.BtnA.wasHold()) press(0, true);
   else if (M5.BtnA.wasClicked()) press(0);
-  if (M5.BtnB.wasClicked()) press(1);
+  if (M5.BtnB.wasHold()) press(1, true);
+  else if (M5.BtnB.wasClicked()) press(1);
   if (M5.BtnC.wasHold()) press(2, true);
   else if (M5.BtnC.wasClicked()) press(2);
 }
@@ -402,6 +523,13 @@ void Display::task() {
   was_setup_ = setup_mode;
   if (force) M5.Display.fillScreen(rgb(C_BG));
   draw_header(force);
+  if (info_) {
+    if (now > info_until_) { close_info(false); return; }
+    if (force) { info_dirty_ = true; last_footer_ = ""; }
+    draw_info();
+    draw_info_footer();
+    return;
+  }
   draw_tape(force);
   if (setup_mode) draw_setup(force);
   else {
