@@ -344,25 +344,58 @@ void Display::draw_setup(bool force) {
 
 // ------------------------------------------------------------- info screen (hold B)
 // QR code for the web editor, network details, and the tape colour picker
-// (A / C step through the presets, B saves and goes back).
+// (A / C step through recent cassettes, then every preset; B saves).
+
+static String choice_name(uint8_t tape, uint8_t ink) {
+  int p = pt::find_color_preset(tape, ink);
+  if (p >= 0) return pt::kColorPresets[p].name;
+  return String(pt::text_color_name(ink)) + " on " + pt::tape_color_name(tape);
+}
 
 void Display::open_info() {
   info_ = true;
   info_until_ = millis() + 60000;
   PrinterSnapshot s = printer.snapshot();
   info_have_tape_ = s.status_valid && s.st.width_mm();
-  info_preset_ = pt::find_color_preset(s.tape_color, s.ink_color);
-  if (info_preset_ < 0) info_preset_ = 0;
+  // recent cassettes first (this width + type at the top), then the presets
+  TapeChoice rec[kRecentMax];
+  int nr = printer.recent(rec, kRecentMax);
+  n_choices_ = 0;
+  for (int i = 0; i < nr; ++i) {
+    bool dup = false;
+    for (int k = 0; k < n_choices_; ++k)
+      if (choices_[k].tape == rec[i].tape && choices_[k].ink == rec[i].ink) dup = true;
+    if (dup) continue;
+    Choice& ch = choices_[n_choices_++];
+    ch.tape = rec[i].tape; ch.ink = rec[i].ink;
+    ch.recent = true;
+    ch.same_type = rec[i].w == s.st.width_mm() && rec[i].m == s.st.media_type();
+    ch.width = rec[i].w;
+  }
+  for (int i = 0; i < pt::kColorPresetCount && n_choices_ < (int)(sizeof choices_ / sizeof choices_[0]); ++i) {
+    bool dup = false;
+    for (int k = 0; k < n_choices_; ++k)
+      if (choices_[k].tape == pt::kColorPresets[i].tape && choices_[k].ink == pt::kColorPresets[i].ink) dup = true;
+    if (dup) continue;
+    Choice& ch = choices_[n_choices_++];
+    ch.tape = pt::kColorPresets[i].tape; ch.ink = pt::kColorPresets[i].ink;
+    ch.recent = false; ch.same_type = false; ch.width = 0;
+  }
+  // start on the colours currently assumed
+  info_preset_ = 0;
+  for (int k = 0; k < n_choices_; ++k)
+    if (choices_[k].tape == s.tape_color && choices_[k].ink == s.ink_color) { info_preset_ = k; break; }
   info_dirty_ = true;
 }
 
 void Display::close_info(bool save) {
   if (save && info_have_tape_) {
     String err;
-    const pt::ColorPreset& p = pt::kColorPresets[info_preset_];
+    const Choice& p = choices_[info_preset_];
+    String name = choice_name(p.tape, p.ink);
     if (printer.set_colors(p.tape, p.ink, err)) {
-      events.add("Tape colours set on the Core: %s", p.name);
-      toast_ = String("Tape set to ") + p.name;
+      events.add("Tape colours set on the Core: %s", name.c_str());
+      toast_ = "Tape set to " + name;
     } else {
       toast_ = err;
     }
@@ -412,7 +445,7 @@ void Display::draw_info() {
     d.drawString("No tape loaded", 8, py + 22);
     return;
   }
-  const pt::ColorPreset& p = pt::kColorPresets[info_preset_];
+  const Choice& p = choices_[info_preset_];
   const int sx = 8, sy = py + 20, sw = 70, sh = 36;
   d.fillRoundRect(sx, sy, sw, sh, 5, rgb(0x2b333c));
   d.fillRect(sx, sy + 6, sw, sh - 12, tape_rgb(p.tape));
@@ -423,12 +456,18 @@ void Display::draw_info() {
   d.setTextDatum(top_left);
   d.setFont(&fonts::FreeSansBold12pt7b);
   d.setTextColor(rgb(C_TEXT));
-  d.drawString(p.name, sx + sw + 10, sy + 2);
+  d.drawString(choice_name(p.tape, p.ink).c_str(), sx + sw + 10, sy + 2);
   d.setFont(&fonts::Font2);
-  d.setTextColor(rgb(C_DIM));
-  char n[16];
-  snprintf(n, sizeof n, "%d / %d", info_preset_ + 1, pt::kColorPresetCount);
+  char n[48];
+  if (p.recent && p.same_type) { d.setTextColor(rgb(C_OK)); snprintf(n, sizeof n, "Used before, this tape type"); }
+  else if (p.recent) { d.setTextColor(rgb(C_ACCENT)); snprintf(n, sizeof n, "Used before, %u mm tape", p.width); }
+  else { d.setTextColor(rgb(C_DIM)); snprintf(n, sizeof n, "Preset"); }
   d.drawString(n, sx + sw + 10, sy + 26);
+  d.setTextColor(rgb(C_DIM));
+  d.setTextDatum(top_right);
+  snprintf(n, sizeof n, "%d/%d", info_preset_ + 1, n_choices_);
+  d.drawString(n, W - 8, sy + 26);
+  d.setTextDatum(top_left);
 }
 
 void Display::draw_info_footer() {
@@ -471,7 +510,7 @@ void Display::press(int btn, bool hold) {
     info_until_ = millis() + 60000;
     if (btn == 1) { close_info(!hold); return; }
     if (!info_have_tape_) { close_info(false); return; }
-    info_preset_ = (info_preset_ + (btn == 0 ? pt::kColorPresetCount - 1 : 1)) % pt::kColorPresetCount;
+    if (n_choices_) info_preset_ = (info_preset_ + (btn == 0 ? n_choices_ - 1 : 1)) % n_choices_;
     info_dirty_ = true;
     return;
   }

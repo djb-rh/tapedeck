@@ -20,6 +20,11 @@ header nav a:hover{color:var(--text)}
 button.pill{border:1px solid transparent;color:var(--text);cursor:pointer}
 button.pill:hover{border-color:var(--dim)}
 button.pill.ask{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 18%,var(--chip))}
+#tapebar{display:none;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 16px;background:color-mix(in srgb,var(--warn) 16%,var(--panel));border-bottom:1px solid var(--line)}
+#tapebar.show{display:flex}
+#tapebar button{display:inline-flex;align-items:center;gap:6px}
+.presets h4{grid-column:1/-1;margin:6px 0 0;font-size:12px;color:var(--dim);font-weight:600}
+.presets .sub{display:block;font-size:11px;color:var(--dim)}
 .presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:10px 0}
 .presets button{display:flex;align-items:center;gap:8px;text-align:left;padding:8px}
 .presets button.on{outline:2px solid var(--accent)}
@@ -81,6 +86,7 @@ pre{white-space:pre-wrap;font-size:12px;background:var(--chip);padding:8px;borde
     </select></span>
   <nav><a href="#" id="apilink">API</a><a href="/setup">Setup</a></nav>
 </header>
+<div id="tapebar"><b>Tape changed. Which one is it?</b><span id="tapequick" style="display:contents"></span><button id="tapeother">Other colours…</button></div>
 <main>
 <section>
   <div id="labels"></div>
@@ -117,7 +123,7 @@ pre{white-space:pre-wrap;font-size:12px;background:var(--chip);padding:8px;borde
 
 <dialog id="tapedlg">
   <h3 style="margin-top:0">Tape colours</h3>
-  <p class="small">The PT-D600 reports the tape's width and type but not its colours, so pick them here. TapeDeck remembers the choice for this cassette type and asks again when it sees the cover open or the cassette change.</p>
+  <p class="small">The PT-D600 reports the tape's width and type but not its colours, so pick them here. TapeDeck remembers your choices and offers the ones you've used before first when it sees the cover open or the cassette change.</p>
   <div class="presets" id="presets"></div>
   <div class="row"><span class="small" id="tapemsg"></span><span class="spacer"></span><button id="tapeclose">Close</button></div>
 </dialog>
@@ -531,7 +537,9 @@ function showStatus() {
   else if (s.state === "ready" && s.printer.label_held) t = "Ready · last label held";
   if (s.state === "ready" && !s.job.last_ok && s.job.last_error) { t = "Last job failed"; c = "warn"; }
   $("sttext").textContent = t; $("stdot").className = "dot " + c;
-  $("tapechip").classList.toggle("ask", !!(s.tape && s.tape.width_mm && !s.tape.colors_confirmed));
+  const ask = !!(s.tape && s.tape.width_mm && !s.tape.colors_confirmed);
+  $("tapechip").classList.toggle("ask", ask);
+  showTapeBar(ask);
   $("st").title = s.job.last_error ? "Last job: " + s.job.last_error : "";
   const sw = $("sw");
   if (s.tape && s.tape.width_mm) {
@@ -664,31 +672,87 @@ curl http://${h}/api/jobs        # history; POST /api/jobs/ID/print reprints`;
 };
 $("apiclose").onclick = () => $("apidlg").close();
 $("tapeclose").onclick = () => $("tapedlg").close();
-$("tapechip").onclick = async () => {
+// ----------------------------------------------------------- tape colours
+let tapeInfo = null, tapeInfoEpoch = -1;
+async function getTapeInfo(force) {
+  const ep = status && status.tape ? status.tape.epoch + ":" + status.tape.color_code + ":" + status.tape.ink_code : "";
+  if (force || !tapeInfo || tapeInfoEpoch !== ep) {
+    tapeInfo = await (await fetch("/api/tape", {cache: "no-store"})).json();
+    tapeInfoEpoch = ep;
+  }
+  return tapeInfo;
+}
+function swatch(t) {
+  const sw = el("span", {class: "swatch"}, "Aa");
+  sw.style.background = t.tape_css; sw.style.color = t.ink_css;
+  return sw;
+}
+async function pickColors(t) {
+  const r = await fetch("/api/tape", {method: "POST", body: new URLSearchParams({tape: t.tape, ink: t.ink})});
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error);
+  toast(`Tape set to ${t.name}`);
+  status = await (await fetch("/api/status", {cache: "no-store"})).json();
+  showStatus(); refresh(); loadHistory();
+}
+let barShown = false;
+async function showTapeBar(ask) {
+  if (!ask) { $("tapebar").classList.remove("show"); barShown = false; return; }
+  if (barShown) return;
+  barShown = true;
+  let info;
+  try { info = await getTapeInfo(true); } catch (e) { barShown = false; return; }
+  const q = $("tapequick");
+  q.textContent = "";
+  // recent cassettes of this width + type first, then a few other recent ones
+  const picks = info.recent.filter(r => r.same_type).concat(info.recent.filter(r => !r.same_type)).slice(0, 6);
+  const seen = new Set();
+  for (const r of picks) {
+    const key = r.tape + "/" + r.ink;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    q.append(el("button", {title: r.same_type ? "Used before with this tape type" : `Used before on ${r.width_mm} mm tape`,
+      onclick: () => pickColors(r).catch(e => toast("Failed: " + e.message, 5000))}, swatch(r), r.name));
+  }
+  if (!picks.length) q.append(el("span", {class: "small"}, "Nothing used before yet."));
+  $("tapebar").classList.add("show");
+}
+async function openTapeDialog() {
   $("tapemsg").textContent = "";
   const box = $("presets");
   box.textContent = "Loading…";
   $("tapedlg").showModal();
-  let list;
-  try { list = (await (await fetch("/api/tape")).json()).presets; } catch (e) { box.textContent = "TapeDeck offline"; return; }
+  let info;
+  try { info = await getTapeInfo(true); } catch (e) { box.textContent = "TapeDeck offline"; return; }
   box.textContent = "";
-  list.forEach((p, i) => {
-    const on = status && status.tape && status.tape.color_code === p.tape && status.tape.ink_code === p.ink && status.tape.colors_from === "user";
-    const sw = el("span", {class: "swatch"}, "Aa");
-    sw.style.background = p.tape_css; sw.style.color = p.ink_css;
-    box.append(el("button", {class: on ? "on" : "", onclick: async () => {
-      try {
-        const r = await fetch("/api/tape", {method: "POST", body: new URLSearchParams({preset: i})});
-        const j = await r.json();
-        if (!j.ok) throw new Error(j.error);
-        $("tapedlg").close();
-        toast(`Tape set to ${p.name}`);
-        const s = await (await fetch("/api/status", {cache: "no-store"})).json();
-        status = s; showStatus(); refresh(); loadHistory();
-      } catch (e) { $("tapemsg").textContent = "Failed: " + e.message; }
-    }}, sw, p.name));
-  });
-};
+  const cur = status && status.tape ? status.tape : {};
+  const isCur = t => cur.color_code === t.tape && cur.ink_code === t.ink && cur.colors_from === "user";
+  const btn = (t, sub) => el("button", {class: isCur(t) ? "on" : "", onclick: async () => {
+    try { await pickColors(t); $("tapedlg").close(); } catch (e) { $("tapemsg").textContent = "Failed: " + e.message; }
+  }}, swatch(t), el("span", {}, t.name, sub ? el("span", {class: "sub"}, sub) : null));
+  const seen = new Set();
+  if (info.recent.length) {
+    box.append(el("h4", {}, "Used before"));
+    const rec = info.recent.filter(r => r.same_type).concat(info.recent.filter(r => !r.same_type));
+    for (const r of rec) {
+      const key = r.tape + "/" + r.ink;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const b = btn(r, r.same_type ? "this tape type" : `${r.width_mm} mm ${r.media.toLowerCase()}`);
+      b.style.position = "relative";
+      b.append(el("span", {title: "Forget this tape", style: "margin-left:auto;padding:0 4px;color:var(--dim)", onclick: async e => {
+        e.stopPropagation();
+        await fetch("/api/tape/forget", {method: "POST", body: new URLSearchParams({tape: r.tape, ink: r.ink, width_mm: r.width_mm, media_code: r.media_code})});
+        openTapeDialog();
+      }}, "✕"));
+      box.append(b);
+    }
+  }
+  box.append(el("h4", {}, "All colours"));
+  for (const p of info.presets) if (!seen.has(p.tape + "/" + p.ink)) box.append(btn(p));
+}
+$("tapechip").onclick = openTapeDialog;
+$("tapeother").onclick = openTapeDialog;
 let rt;
 window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(refresh, 150); });
 document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "p") { e.preventDefault(); doPrint(); } });

@@ -80,24 +80,22 @@ leaves without saving.
 ## Tape colours
 
 The PT-D600 reports the cassette's width and type but always reports its
-colours as black on white. Tell TapeDeck the colours once per cassette type,
-either by clicking the tape chip at the top of the web page or from the info
-screen on the Core. It remembers them per width + type and goes back to
-asking ("tape changed? set colours", "New tape? Hold B: colours") when it
-sees the cover open and close or the cassette type change. Two cassettes of
-the same width and type look identical to the printer, so after a swap
-between those, check the colours.
+colours as black on white, so you tell TapeDeck the colours: click the tape
+chip at the top of the web page, or hold B on the Core.
 
-## Tape waste
+Every choice is remembered (the last 8 cassettes, with their width and type).
+When TapeDeck sees the cover open and close, or a different cassette type, it
+assumes the tape you last used of that width and type, and asks you to check:
 
-The PT-D600's cutter sits about 20 mm ahead of the print head, so every job
-starts by feeding and cutting off a ~20 mm leader. TapeDeck's answer is to batch:
-put all the labels in one job and only the first one pays for it. Each label
-gets a 2 mm margin at each end (Brother's minimum; adjustable in Setup).
+- the web page shows a **"Tape changed. Which one is it?"** bar with the tapes
+  you've used before as one-click buttons (ones of the same width and type
+  first), plus "Other colours…";
+- the Core says "New tape? Hold B: colours"; the picker starts on the best
+  guess and steps through your recent tapes before the full preset list.
 
-"Hold last label" (chain printing) leaves the last label inside the printer
-instead of feeding it out, so the next job doesn't need a leader at all. The
-held label comes out when the next job prints.
+Two cassettes of the same width and type look identical to the printer, which
+is why it asks after every cover opening. The ✕ next to a recent tape in the
+web picker forgets it.
 
 ## HTTP API
 
@@ -109,8 +107,9 @@ held label comes out when the next job prints.
 | GET | `/api/jobs/ID` | a job file (TDJ1) |
 | POST | `/api/jobs/ID/print` | reprint |
 | DELETE | `/api/jobs/ID` | remove from the history |
-| GET | `/api/tape` | colour presets |
+| GET | `/api/tape` | recent cassettes (this width + type first) and colour presets |
 | POST | `/api/tape` | set the loaded cassette's colours: `preset=N`, or `tape=CODE&ink=CODE` (Brother codes) |
+| POST | `/api/tape/forget` | drop a recent cassette: `tape`, `ink`, `width_mm`, `media_code` |
 
 `/api/print` takes three kinds of body, told apart by their first bytes:
 

@@ -19,6 +19,7 @@ struct PLock {
 bool Printer::begin(int cs, int intr) {
   mu_ = xSemaphoreCreateMutex();
   q_ = xQueueCreate(8, sizeof(uint32_t));
+  load_recent();
   snap_.cs = cs; snap_.intr = intr;
   module_ok_ = cs >= 0 && intr >= 0 && printerUsb.begin(cs, intr);
   snap_.state = module_ok_ ? PState::NO_PRINTER : PState::NO_MODULE;
@@ -67,22 +68,93 @@ void Printer::update_live_error() {
 
 static void color_key(uint8_t w, uint8_t m, char* k) { snprintf(k, 8, "c%02x%02x", w, m); }
 
+// Recent cassettes, most recently confirmed first, kept as one NVS blob.
+void Printer::load_recent() {
+  Preferences p;
+  n_recent_ = 0;
+  if (!p.begin("tapecol", true)) return;
+  size_t n = p.getBytesLength("recent");
+  if (n && n % sizeof(TapeChoice) == 0 && n <= sizeof recent_) {
+    p.getBytes("recent", recent_, n);
+    n_recent_ = n / sizeof(TapeChoice);
+  }
+  p.end();
+}
+
+void Printer::save_recent() {
+  Preferences p;
+  if (!p.begin("tapecol", false)) return;
+  p.putBytes("recent", recent_, n_recent_ * sizeof(TapeChoice));
+  p.end();
+}
+
+void Printer::remember_locked(const TapeChoice& t) {
+  int k = 0;
+  TapeChoice out[kRecentMax];
+  out[k++] = t;
+  for (int i = 0; i < n_recent_ && k < kRecentMax; ++i) {
+    const TapeChoice& r = recent_[i];
+    if (r.w == t.w && r.m == t.m && r.tape == t.tape && r.ink == t.ink) continue;
+    out[k++] = r;
+  }
+  memcpy(recent_, out, sizeof(TapeChoice) * k);
+  n_recent_ = k;
+  save_recent();
+}
+
+bool Printer::forget(const TapeChoice& t) {
+  PLock l(mu_);
+  int k = 0;
+  for (int i = 0; i < n_recent_; ++i) {
+    const TapeChoice& r = recent_[i];
+    if (r.w == t.w && r.m == t.m && r.tape == t.tape && r.ink == t.ink) continue;
+    recent_[k++] = r;
+  }
+  if (k == n_recent_) return false;
+  n_recent_ = k;
+  save_recent();
+  bump();
+  return true;
+}
+
+int Printer::recent(TapeChoice* out, int cap) {
+  PLock l(mu_);
+  // cassettes of the loaded width + type first, then the rest, each in MRU order
+  int k = 0;
+  for (int pass = 0; pass < 2; ++pass)
+    for (int i = 0; i < n_recent_ && k < cap; ++i) {
+      bool match = recent_[i].w == sig_w_ && recent_[i].m == sig_m_;
+      if (match == (pass == 0)) out[k++] = recent_[i];
+    }
+  return k;
+}
+
 void Printer::load_colors_locked() {
-  // caller holds mu_; sig_w_/sig_m_ describe the loaded cassette
+  // caller holds mu_; sig_w_/sig_m_ describe the loaded cassette.
+  // Assume the cassette is the one most recently confirmed for this type.
+  for (int i = 0; i < n_recent_; ++i) {
+    if (recent_[i].w != sig_w_ || recent_[i].m != sig_m_) continue;
+    snap_.tape_color = recent_[i].tape;
+    snap_.ink_color = recent_[i].ink;
+    snap_.colors_user = true;
+    return;
+  }
+  // older firmware kept one choice per type under its own key: adopt it
   Preferences p;
   uint16_t v = 0;
   char k[8];
   color_key(sig_w_, sig_m_, k);
   if (p.begin("tapecol", true)) { v = p.getUShort(k, 0); p.end(); }
-  if (v) {
+  if (v && sig_w_) {
     snap_.tape_color = v >> 8;
     snap_.ink_color = v & 0xFF;
     snap_.colors_user = true;
-  } else {
-    snap_.tape_color = snap_.st.tape_color();
-    snap_.ink_color = snap_.st.text_color();
-    snap_.colors_user = false;
+    remember_locked({sig_w_, sig_m_, (uint8_t)(v >> 8), (uint8_t)(v & 0xFF)});
+    return;
   }
+  snap_.tape_color = snap_.st.tape_color();
+  snap_.ink_color = snap_.st.text_color();
+  snap_.colors_user = false;
 }
 
 // After every new status block: notice cassette changes (width/media change,
@@ -113,12 +185,7 @@ void Printer::on_status_locked() {
 bool Printer::set_colors(uint8_t tape, uint8_t ink, String& err) {
   PLock l(mu_);
   if (!snap_.status_valid || !snap_.st.width_mm()) { err = "no tape loaded"; return false; }
-  char k[8];
-  color_key(sig_w_, sig_m_, k);
-  Preferences p;
-  if (!p.begin("tapecol", false)) { err = "settings storage failed"; return false; }
-  p.putUShort(k, (uint16_t)(tape << 8 | ink));
-  p.end();
+  remember_locked({sig_w_, sig_m_, tape, ink});
   snap_.tape_color = tape;
   snap_.ink_color = ink;
   snap_.colors_user = true;

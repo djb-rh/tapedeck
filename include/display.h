@@ -4,6 +4,7 @@
 //   editor, tape colour picker), hold C = jump to newest.
 #pragma once
 #include <Arduino.h>
+#include "printer.h"
 
 class Display {
  public:
@@ -43,7 +44,10 @@ class Display {
   bool force_all_ = true;
   bool setup_dismissed_ = false;
   bool info_ = false, info_dirty_ = false, info_have_tape_ = false;
-  int info_preset_ = 0;
+  int info_preset_ = 0;            // index into choices_
+  struct Choice { uint8_t tape, ink, width; bool recent, same_type; };
+  Choice choices_[32];
+  int n_choices_ = 0;
   uint32_t info_until_ = 0;
 };
 

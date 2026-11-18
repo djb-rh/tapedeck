@@ -184,10 +184,28 @@ static void handle_status() {
   send_json(200, d);
 }
 
-// GET /api/tape: colour presets. POST /api/tape (tape=CODE&ink=CODE, or
+// GET /api/tape: recent cassettes (this width + type first) and colour presets. POST /api/tape (tape=CODE&ink=CODE, or
 // preset=INDEX): set the loaded cassette's colours.
 static void handle_tape_get() {
   JsonDocument d;
+  PrinterSnapshot s = printer.snapshot();
+  TapeChoice rec[kRecentMax];
+  int nr = printer.recent(rec, kRecentMax);
+  JsonArray ra = d["recent"].to<JsonArray>();
+  for (int i = 0; i < nr; ++i) {
+    JsonObject o = ra.add<JsonObject>();
+    int p = pt::find_color_preset(rec[i].tape, rec[i].ink);
+    o["name"] = p >= 0 ? String(pt::kColorPresets[p].name)
+                       : String(pt::text_color_name(rec[i].ink)) + " on " + pt::tape_color_name(rec[i].tape);
+    o["tape"] = rec[i].tape;
+    o["ink"] = rec[i].ink;
+    o["tape_css"] = tape_css(rec[i].tape);
+    o["ink_css"] = ink_css(rec[i].ink);
+    o["width_mm"] = rec[i].w;
+    o["media"] = pt::media_type_name(rec[i].m);
+    o["media_code"] = rec[i].m;
+    o["same_type"] = s.status_valid && rec[i].w == s.st.width_mm() && rec[i].m == s.st.media_type();
+  }
   JsonArray a = d["presets"].to<JsonArray>();
   for (int i = 0; i < pt::kColorPresetCount; ++i) {
     JsonObject o = a.add<JsonObject>();
@@ -218,6 +236,17 @@ static void handle_tape_post() {
   d["ok"] = true;
   d["color"] = pt::tape_color_name(tape);
   d["ink"] = pt::text_color_name(ink);
+  send_json(200, d);
+}
+
+// POST /api/tape/forget: tape=CODE&ink=CODE&width_mm=W&media_code=M
+static void handle_tape_forget() {
+  if (!print_ok()) return;
+  TapeChoice t = {(uint8_t)server.arg("width_mm").toInt(), (uint8_t)server.arg("media_code").toInt(),
+                  (uint8_t)server.arg("tape").toInt(), (uint8_t)server.arg("ink").toInt()};
+  if (!printer.forget(t)) { send_err(404, "not in the recent list"); return; }
+  JsonDocument d;
+  d["ok"] = true;
   send_json(200, d);
 }
 
@@ -468,6 +497,7 @@ void WebUi::begin() {
   server.on("/api/jobs", HTTP_GET, handle_jobs);
   server.on("/api/tape", HTTP_GET, handle_tape_get);
   server.on("/api/tape", HTTP_POST, handle_tape_post);
+  server.on("/api/tape/forget", HTTP_POST, handle_tape_forget);
   server.on(UriBraces("/api/jobs/{}"), HTTP_GET, handle_job_get);
   server.on(UriBraces("/api/jobs/{}"), HTTP_DELETE, handle_job_delete);
   server.on(UriBraces("/api/jobs/{}/print"), HTTP_POST, handle_job_print);

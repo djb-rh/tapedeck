@@ -4,6 +4,13 @@
 #include <Arduino.h>
 #include "ptouch.h"
 
+// A cassette the user has told us about: width + media type (what the
+// printer can see) and the colours (what it can't).
+struct TapeChoice {
+  uint8_t w, m, tape, ink;
+};
+constexpr int kRecentMax = 8;
+
 enum class PState : uint8_t { NO_MODULE, NO_PRINTER, IDLE, PRINTING, ERROR };
 
 struct PrinterSnapshot {
@@ -43,6 +50,10 @@ class Printer {
   void refresh_status() { want_status_ = true; }
   // Set (and remember) the colours of the loaded cassette type.
   bool set_colors(uint8_t tape, uint8_t ink, String& err);
+  // Recent cassettes, ones matching the loaded width + type first. Returns the count.
+  int recent(TapeChoice* out, int cap);
+  // Drop one remembered cassette. False if it wasn't there.
+  bool forget(const TapeChoice& t);
   uint32_t seq();
 
  private:
@@ -56,7 +67,12 @@ class Printer {
   void bump();
   void on_status_locked();
   void load_colors_locked();
+  void load_recent();
+  void save_recent();
+  void remember_locked(const TapeChoice& t);
   uint8_t sig_w_ = 0xFF, sig_m_ = 0xFF;
+  TapeChoice recent_[kRecentMax];
+  int n_recent_ = 0;
   bool cover_open_ = false;
 
   SemaphoreHandle_t mu_ = nullptr;

@@ -41,7 +41,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, {"state": "ready", "printer": {"product": "PT-D600", "serial": "MOCK", "error": "", "label_held": False},
                 "tape": {"width_mm": TAPE, "print_dots": GEOM[TAPE], "dpi": 180, "media": "Laminated",
                          "color_css": TAPECOL["cur"][0], "ink_css": TAPECOL["cur"][1], "color": TAPECOL["cur"][2], "ink": TAPECOL["cur"][3],
-                         "colors_confirmed": TAPECOL.get("set", False) or len(TAPECOL) > 1, "colors_from": "user"},
+                         "colors_confirmed": TAPECOL.get("set", False), "colors_from": "user", "epoch": 1, "color_code": 1, "ink_code": 8},
                 "job": {"id": 0, "title": "", "done": 0, "total": 0, "queued": 0, "last_id": state["last"], "last_ok": True,
                         "last_error": "", "jobs_done": state["done"], "labels_done": state["labels"]},
                 "device": {"version": "mock", "hostname": "tapedeck", "ip": "127.0.0.1", "ap_mode": False, "ssid": "mock", "rssi": -50,
@@ -58,7 +58,11 @@ class H(BaseHTTPRequestHandler):
                                    "disp_timeout_s": 600, "brightness": 140})
         if p == "/api/events": return self.send(200, ["mock event"])
         if p == "/api/tape":
-            return self.send(200, {"presets": [{"name": n, "tape": t, "ink": i, "tape_css": tc, "ink_css": ic} for n, t, i, tc, ic in [
+            return self.send(200, {"recent": [
+                {"name": "Black on Yellow", "tape": 6, "ink": 8, "tape_css": "#f7d417", "ink_css": "#111111", "width_mm": 12, "media": "Laminated", "same_type": True},
+                {"name": "Red on White", "tape": 1, "ink": 4, "tape_css": "#fbfbf6", "ink_css": "#d8262c", "width_mm": 12, "media": "Laminated", "same_type": True},
+                {"name": "Black on White", "tape": 1, "ink": 8, "tape_css": "#fbfbf6", "ink_css": "#111111", "width_mm": 12, "media": "Non-laminated", "same_type": False}],
+                "presets": [{"name": n, "tape": t, "ink": i, "tape_css": tc, "ink_css": ic} for n, t, i, tc, ic in [
                 ("Black on White", 1, 8, "#fbfbf6", "#111111"), ("Black on Yellow", 6, 8, "#f7d417", "#111111"),
                 ("White on Black", 8, 1, "#1a1a1a", "#ffffff"), ("Red on White", 1, 4, "#fbfbf6", "#d8262c")]]})
         if p == "/api/scan": return self.send(200, {"networks": [{"ssid": "Example", "rssi": -48, "open": False}]})
@@ -84,10 +88,11 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/config": return self.send(200, {"ok": True})
         if p == "/api/tape":
             q = dict(x.split("=") for x in data.decode().split("&") if "=" in x)
-            TAPECOL.update({"0": ("#fbfbf6", "#111111", "White", "Black"), "1": ("#f7d417", "#111111", "Yellow", "Black"),
-                            "2": ("#1a1a1a", "#ffffff", "Black", "White"), "3": ("#fbfbf6", "#d8262c", "White", "Red")}[q.get("preset", "0")] and
-                           {"cur": {"0": ("#fbfbf6", "#111111", "White", "Black"), "1": ("#f7d417", "#111111", "Yellow", "Black"),
-                                    "2": ("#1a1a1a", "#ffffff", "Black", "White"), "3": ("#fbfbf6", "#d8262c", "White", "Red")}[q.get("preset", "0")]})
+            css = {1: "#fbfbf6", 6: "#f7d417", 8: "#1a1a1a", 4: "#d8262c"}
+            names = {1: "White", 6: "Yellow", 8: "Black", 4: "Red"}
+            t, i = int(q.get("tape", 1)), int(q.get("ink", 8))
+            TAPECOL["cur"] = (css.get(t, "#fbfbf6"), {8: "#111111", 1: "#ffffff", 4: "#d8262c"}.get(i, "#111111"), names.get(t, "?"), names.get(i, "?"))
+            TAPECOL["set"] = True
             return self.send(200, {"ok": True})
         self.send(404, b"not found", "text/plain")
     def do_DELETE(self):

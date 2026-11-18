@@ -16,7 +16,10 @@ Read this before changing the USB code or the job format.
   tape colour**: a black-on-white cassette (media 0x03) and a black-on-yellow
   laminated TZe (media 0x01) both reported tape 0x01 / ink 0x08. The media byte
   did change, so width + media is the cassette signature. User-chosen colours
-  live in NVS namespace `tapecol`, key `cWWMM` (hex width, media) = tape<<8|ink.
+  live in NVS namespace `tapecol`, blob `recent`: up to 8 `TapeChoice`
+  {width, media, tape, ink}, most recently confirmed first. The newest entry
+  matching the loaded width + media is the assumed colour. (v1 of this kept one
+  `cWWMM` key per type; those are adopted into the list on first use.)
   Cover open (err2 bit 4) then closed, or a signature change, marks the colours
   unconfirmed until the user picks (or re-saves) them.
 - Orientation: MSB of byte 0 of a raster line is the top of the label as read;
