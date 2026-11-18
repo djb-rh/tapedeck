@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TapeDeck Setup</title>
+<style>
+:root{--bg:#f3f4f6;--panel:#fff;--text:#1c2127;--dim:#6b7684;--line:#dde1e6;--accent:#1f6feb;--accent-ink:#fff;--ok:#1a7f37;--err:#c62828;--chip:#eef1f4}
+@media (prefers-color-scheme:dark){:root{--bg:#101418;--panel:#181d23;--text:#e6eaee;--dim:#8f9aa6;--line:#2a313a;--accent:#4f9dff;--accent-ink:#06121f;--ok:#4cc26e;--err:#ff6b6b;--chip:#222932}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:17px;margin:0}
+header a{margin-left:auto;color:var(--dim);text-decoration:none}
+main{max-width:640px;margin:0 auto;padding:16px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+h2{font-size:15px;margin:0 0 10px}
+label{display:block;margin:10px 0 4px;color:var(--dim);font-size:13px}
+input,select{width:100%;font:inherit;padding:8px 10px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+input[type=checkbox]{width:auto}
+.ck{display:flex;gap:8px;align-items:center;color:var(--text);font-size:15px}
+.row{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+@media (max-width:520px){.grid{grid-template-columns:1fr}}
+button{font:inherit;cursor:pointer;padding:8px 14px;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--text)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.small{font-size:13px;color:var(--dim)}
+.nets{display:flex;flex-direction:column;gap:4px;margin-top:8px;max-height:220px;overflow:auto}
+.nets button{text-align:left;display:flex;justify-content:space-between}
+#msg{min-height:1.4em;margin-top:8px}
+.ok{color:var(--ok)}.err{color:var(--err)}
+pre{white-space:pre-wrap;font-size:12px;background:var(--chip);padding:8px;border-radius:6px;max-height:260px;overflow:auto;margin:0}
+</style>
+</head>
+<body>
+<header><h1>TapeDeck Setup</h1><a href="/">Label editor →</a></header>
+<main>
+<section>
+  <h2>Wi-Fi</h2>
+  <div class="small" id="wifinow">…</div>
+  <div class="row"><button id="scan">Scan for networks</button><span class="small" id="scanmsg"></span></div>
+  <div class="nets" id="nets"></div>
+  <label for="ssid">Network name</label>
+  <input id="ssid" autocomplete="off" autocapitalize="off">
+  <label for="pass">Password</label>
+  <input id="pass" type="password" placeholder="(unchanged)" autocomplete="new-password">
+  <label for="hostname">Hostname (http://NAME.local)</label>
+  <input id="hostname" autocapitalize="off">
+  <div class="row"><button class="primary" id="savewifi">Save and connect</button></div>
+  <div id="msg"></div>
+</section>
+<section>
+  <h2>Printing</h2>
+  <div class="grid">
+    <div><label for="margin">Margin each side of a label, mm (2 minimum)</label><input id="margin" type="number" min="2" max="25" step="0.5"></div>
+    <div><label for="histmax">Jobs kept for reprint</label><input id="histmax" type="number" min="1" max="50"></div>
+  </div>
+  <label class="ck"><input type="checkbox" id="chain"> Always hold the last label in the printer (chain printing)</label>
+  <div class="small">Holding the last label skips the ~20 mm leader on the next job, but that label stays inside until something else prints.</div>
+  <div class="grid">
+    <div><label for="dispto">Screen off after, seconds (0 = never)</label><input id="dispto" type="number" min="0" max="86400"></div>
+    <div><label for="bright">Screen brightness (10-255)</label><input id="bright" type="number" min="10" max="255"></div>
+  </div>
+  <div class="row"><button class="primary" id="saveprint">Save</button><span id="pmsg" class="small"></span></div>
+</section>
+<section>
+  <h2>Access</h2>
+  <label for="webpass">Settings password (user "admin"; blank = none)</label>
+  <input id="webpass" type="password" placeholder="(unchanged)" autocomplete="new-password">
+  <label for="apikey">API key for printing (blank = anyone on the network can print)</label>
+  <input id="apikey" type="text" placeholder="(unchanged)" autocomplete="off">
+  <div class="grid">
+    <div><label for="tz">Time zone (POSIX TZ)</label><input id="tz"></div>
+    <div><label for="ntp">NTP server</label><input id="ntp"></div>
+  </div>
+  <div class="row"><button class="primary" id="saveaccess">Save</button><button id="clearaccess">Remove password + key</button><span id="amsg" class="small"></span></div>
+</section>
+<section>
+  <h2>Firmware</h2>
+  <div class="small" id="fwver"></div>
+  <form id="fwform" class="row">
+    <input type="file" id="fw" accept=".bin" style="flex:1">
+    <button class="primary" type="submit">Update</button>
+  </form>
+  <div id="fwmsg" class="small"></div>
+  <div class="row"><button id="reboot">Restart TapeDeck</button></div>
+</section>
+<section>
+  <h2>Events</h2>
+  <pre id="events">…</pre>
+</section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+async function post(url, data) {
+  const r = await fetch(url, {method: "POST", body: new URLSearchParams(data)});
+  if (!r.ok) throw new Error(r.status + " " + (await r.text()));
+  return r.json().catch(() => ({}));
+}
+async function load() {
+  try {
+    const c = await (await fetch("/api/config")).json();
+    $("ssid").value = c.ssid || ""; $("hostname").value = c.hostname;
+    $("margin").value = c.margin_mm; $("histmax").value = c.history_max; $("chain").checked = c.chain;
+    $("dispto").value = c.disp_timeout_s; $("bright").value = c.brightness;
+    $("tz").value = c.tz; $("ntp").value = c.ntp;
+    $("webpass").placeholder = c.has_web_pass ? "(set; type to change)" : "(none)";
+    $("apikey").placeholder = c.has_api_key ? "(set; type to change)" : "(none)";
+  } catch (e) {}
+  try {
+    const s = await (await fetch("/api/status")).json();
+    const d = s.device;
+    $("wifinow").textContent = d.ap_mode && !d.rssi ? `Not on a network yet. This setup network is ${d.ap_ssid}.`
+      : `Connected to ${d.ssid} (${d.rssi} dBm) as ${d.hostname}.local, ${d.ip}` + (d.ap_mode ? ` · setup network ${d.ap_ssid} still open` : "");
+    $("fwver").textContent = `Running v${d.version}. Upload a firmware.bin built from the tapedeck project (env app).`;
+  } catch (e) {}
+  try {
+    const ev = await (await fetch("/api/events")).json();
+    $("events").textContent = ev.join("\n") || "(none)";
+  } catch (e) {}
+}
+$("scan").onclick = async () => {
+  $("scanmsg").textContent = "Scanning…"; $("nets").textContent = "";
+  try {
+    const r = await (await fetch("/api/scan")).json();
+    r.networks.sort((a, b) => b.rssi - a.rssi);
+    for (const n of r.networks) {
+      const b = document.createElement("button");
+      b.innerHTML = `<span></span><span class="small">${n.rssi} dBm${n.open ? " · open" : ""}</span>`;
+      b.firstChild.textContent = n.ssid;
+      b.onclick = () => { $("ssid").value = n.ssid; $("pass").focus(); };
+      $("nets").append(b);
+    }
+    $("scanmsg").textContent = r.networks.length ? "" : "No networks found";
+  } catch (e) { $("scanmsg").textContent = "Scan failed"; }
+};
+$("savewifi").onclick = async () => {
+  const d = {ssid: $("ssid").value.trim(), hostname: $("hostname").value.trim()};
+  if ($("pass").value) d.pass = $("pass").value;
+  if (!d.ssid) { $("msg").innerHTML = '<span class="err">Pick a network first.</span>'; return; }
+  try {
+    await post("/api/config", d);
+    $("msg").innerHTML = `<span class="ok">Saved. TapeDeck is joining ${d.ssid}. In a minute, reconnect this device to that network and open <b>http://${d.hostname || "tapedeck"}.local/</b> (the Core's screen shows its address).</span>`;
+  } catch (e) { $("msg").innerHTML = `<span class="err">${e.message}</span>`; }
+};
+$("saveprint").onclick = async () => {
+  try {
+    await post("/api/config", {margin_mm: $("margin").value, history_max: $("histmax").value, chain: $("chain").checked ? 1 : 0,
+                               disp_timeout_s: $("dispto").value, brightness: $("bright").value});
+    $("pmsg").textContent = "Saved";
+  } catch (e) { $("pmsg").textContent = e.message; }
+};
+$("saveaccess").onclick = async () => {
+  const d = {tz: $("tz").value, ntp: $("ntp").value};
+  if ($("webpass").value) d.web_pass = $("webpass").value;
+  if ($("apikey").value) d.api_key = $("apikey").value;
+  try { await post("/api/config", d); $("amsg").textContent = "Saved"; $("webpass").value = $("apikey").value = ""; load(); }
+  catch (e) { $("amsg").textContent = e.message; }
+};
+$("clearaccess").onclick = async () => {
+  if (!confirm("Remove the settings password and the API key?")) return;
+  try { await post("/api/config", {web_pass: "", api_key: ""}); $("amsg").textContent = "Removed"; load(); }
+  catch (e) { $("amsg").textContent = e.message; }
+};
+$("fwform").onsubmit = async e => {
+  e.preventDefault();
+  const f = $("fw").files[0];
+  if (!f) return;
+  const fd = new FormData(); fd.append("fw", f);
+  $("fwmsg").textContent = "Uploading… do not unplug";
+  try {
+    const r = await fetch("/update", {method: "POST", body: fd});
+    $("fwmsg").textContent = await r.text();
+    if (r.ok) setTimeout(() => location.reload(), 9000);
+  } catch (e) { $("fwmsg").textContent = "Upload failed: " + e.message; }
+};
+$("reboot").onclick = async () => {
+  if (!confirm("Restart TapeDeck?")) return;
+  await fetch("/api/reboot", {method: "POST"});
+  $("fwmsg").textContent = "Restarting…";
+  setTimeout(() => location.reload(), 8000);
+};
+load();
+</script>
+</body>
+</html>

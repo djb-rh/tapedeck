@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TapeDeck</title>
+<style>
+:root{--bg:#f3f4f6;--panel:#fff;--text:#1c2127;--dim:#6b7684;--line:#dde1e6;--accent:#1f6feb;--accent-ink:#fff;--ok:#1a7f37;--warn:#b26b00;--err:#c62828;--chip:#eef1f4;--shadow:0 1px 2px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.05)}
+@media (prefers-color-scheme:dark){:root{--bg:#101418;--panel:#181d23;--text:#e6eaee;--dim:#8f9aa6;--line:#2a313a;--accent:#4f9dff;--accent-ink:#06121f;--ok:#4cc26e;--warn:#f0b13a;--err:#ff6b6b;--chip:#222932;--shadow:none}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:17px;margin:0 6px 0 0;letter-spacing:.2px}
+header nav{margin-left:auto;display:flex;gap:14px}
+header nav a{color:var(--dim);text-decoration:none}
+header nav a:hover{color:var(--text)}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--chip);font-size:13px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--err)}.dot.busy{background:var(--accent)}
+.swatch{width:28px;height:15px;border-radius:3px;border:1px solid rgba(0,0,0,.25);display:inline-flex;align-items:center;justify-content:center;font:700 9px/1 sans-serif}
+main{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:16px;padding:16px;max-width:1300px;margin:0 auto}
+@media (max-width:900px){main{grid-template-columns:minmax(0,1fr);padding:12px}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow)}
+.label{padding:12px;margin-bottom:12px}
+.label.sel{outline:2px solid var(--accent);outline-offset:-1px}
+.tape{overflow-x:auto;padding:12px 6px;border-radius:8px;background:var(--chip)}
+.tape canvas{display:block;margin:0 auto;image-rendering:pixelated;image-rendering:crisp-edges;box-shadow:0 1px 4px rgba(0,0,0,.35);border-radius:2px}
+.meta{display:flex;justify-content:space-between;gap:8px;color:var(--dim);font-size:12px;margin:6px 2px 8px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+textarea{width:100%;min-height:56px;resize:vertical;font:15px/1.35 ui-monospace,Menlo,Consolas,monospace;padding:8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+select,input[type=number],input[type=text]{font:inherit;padding:5px 7px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+input[type=number]{width:68px}
+label.ck{display:inline-flex;gap:5px;align-items:center;color:var(--dim);user-select:none}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--line);border-radius:0;background:var(--bg);color:var(--dim);padding:5px 9px}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);color:var(--accent-ink)}
+button{font:inherit;cursor:pointer;padding:6px 12px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--text)}
+button:hover{border-color:var(--dim)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.primary:disabled{opacity:.5;cursor:default}
+button.icon{padding:4px 8px;color:var(--dim)}
+button.danger:hover{color:var(--err);border-color:var(--err)}
+.small{font-size:12px;color:var(--dim)}
+.spacer{flex:1}
+#printbar{position:sticky;bottom:8px;padding:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px}
+#printbar .big{font-size:16px;padding:9px 20px}
+aside .card{padding:12px;margin-bottom:12px}
+aside h2{font-size:14px;margin:0 0 8px}
+.job{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:9px 0;border-top:1px solid var(--line)}
+.job:first-of-type{border-top:0;padding-top:0}
+.job .th{grid-column:1/3;overflow:hidden}
+.job canvas{max-width:100%;image-rendering:pixelated;border-radius:2px;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.job .t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job .b{display:flex;gap:4px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--text);color:var(--panel);padding:10px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9;max-width:90vw}
+#toast.show{opacity:1}
+dialog{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);max-width:600px;width:92vw}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+code{background:var(--chip);padding:1px 4px;border-radius:4px}
+pre{white-space:pre-wrap;font-size:12px;background:var(--chip);padding:8px;border-radius:6px;overflow-x:auto}
+.imgrow{display:none}
+.has-img .imgrow{display:flex}
+</style>
+</head>
+<body>
+<header>
+  <h1>TapeDeck</h1>
+  <span class="pill" id="st"><span class="dot" id="stdot"></span><span id="sttext">Connecting…</span></span>
+  <span class="pill"><span class="swatch" id="sw">Aa</span><span id="tapetext">–</span></span>
+  <span class="pill" title="Tape width the editor lays labels out for">Layout
+    <select id="tapesel" style="padding:1px 4px">
+      <option value="auto">as loaded</option><option value="4">3.5 mm</option><option value="6">6 mm</option><option value="9">9 mm</option><option value="12">12 mm</option><option value="18">18 mm</option><option value="24">24 mm</option>
+    </select></span>
+  <nav><a href="#" id="apilink">API</a><a href="/setup">Setup</a></nav>
+</header>
+<main>
+<section>
+  <div id="labels"></div>
+  <div class="row">
+    <button id="add">+ Add label</button>
+    <button id="bulk">Bulk add…</button>
+    <span class="spacer"></span>
+    <button id="clear" class="danger">Clear all</button>
+  </div>
+  <div id="printbar" class="card">
+    <button class="primary big" id="print">Print</button>
+    <span>Copies of the set <input type="number" id="copies" min="1" max="99" value="1"></span>
+    <label class="ck" title="Leave the last label in the printer; the next job pushes it out. Saves the ~20 mm leader on the next job."><input type="checkbox" id="chain"> Hold last label</label>
+    <span class="spacer"></span>
+    <span class="small" id="estimate"></span>
+  </div>
+</section>
+<aside>
+  <div class="card">
+    <h2>Recent jobs</h2>
+    <div id="hist"><span class="small">Loading…</span></div>
+  </div>
+  <div class="card small" id="devinfo"></div>
+</aside>
+</main>
+<div id="toast"></div>
+
+<dialog id="bulkdlg">
+  <h3 style="margin-top:0">Bulk add labels</h3>
+  <p class="small">One label per line. Put <code>|</code> inside a line for a second text line. New labels copy the style of the selected label.</p>
+  <textarea id="bulktext" rows="10" placeholder="136078-1015|27C512 U5&#10;136078-1016|27C512 U6"></textarea>
+  <div class="row"><span class="spacer"></span><button id="bulkcancel">Cancel</button><button class="primary" id="bulkok">Add</button></div>
+</dialog>
+
+<dialog id="apidlg">
+  <h3 style="margin-top:0">Printing from other apps</h3>
+  <p class="small">POST a JSON text job, a binary PBM (P4; height = dots across the tape) or a TDJ1 job to <code>/api/print</code>. Add <code>?print=0</code> to store it in the history without printing. If an API key is set in Setup, send it as an <code>X-API-Key</code> header.</p>
+  <pre id="apiex"></pre>
+  <div class="row"><span class="spacer"></span><button id="apiclose">Close</button></div>
+</dialog>
+
+<script>
+"use strict";
+const DPI = 180;
+const GEOM = {4: 24, 6: 32, 9: 50, 12: 70, 18: 112, 24: 128};   // printable dots per tape width
+const FONTS = [
+  ["Helvetica, Arial, sans-serif", "Sans"],
+  ["'Arial Narrow', 'Helvetica Neue', 'Roboto Condensed', sans-serif", "Narrow"],
+  ["Georgia, 'Times New Roman', serif", "Serif"],
+  ["'Courier New', Courier, monospace", "Typewriter"],
+  ["Menlo, Consolas, 'DejaVu Sans Mono', monospace", "Mono"],
+  ["Impact, 'Arial Black', sans-serif", "Impact"],
+  ["'Comic Sans MS', 'Chalkboard SE', cursive", "Casual"],
+];
+const $ = id => document.getElementById(id);
+let status = null;
+let labels = [];
+let selected = 0;
+let tapeOverride = "auto";
+
+function defaultLabel(text) {
+  return {text: text ?? "", font: FONTS[0][0], bold: true, italic: false, size: 0, spacing: 1.05,
+          align: "center", length_mm: 0, pad_mm: 1.5, frame: 0, invert: false, copies: 1,
+          img: null, imgpos: "left", dither: false, threshold: 50};
+}
+const plain = l => { const o = {...l, img: l.img ? l.img.src : null}; delete o._bm; return o; };
+
+// ----------------------------------------------------------- persistence (this browser only)
+function save() {
+  try { localStorage.setItem("tapedeck.labels", JSON.stringify(labels.map(plain))); } catch (e) {}
+}
+function restore(list) {
+  labels = list.map(l => ({...defaultLabel(), ...l, img: null, _src: l.img}));
+  labels.forEach(l => { if (l._src) loadImage(l, l._src); delete l._src; });
+}
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem("tapedeck.labels") || "null");
+    if (Array.isArray(s) && s.length) { restore(s); return; }
+  } catch (e) {}
+  labels = [defaultLabel("TapeDeck")];
+}
+
+// ----------------------------------------------------------- tape geometry
+function tapeMM() {
+  if (tapeOverride !== "auto") return +tapeOverride;
+  return status && status.tape && GEOM[status.tape.width_mm] ? status.tape.width_mm : 12;
+}
+const printDots = () => GEOM[tapeMM()] || 70;
+const tapeCss = () => status && status.tape ? status.tape.color_css : "#fbfbf6";
+const inkCss = () => status && status.tape ? status.tape.ink_css : "#111111";
+const mm2dots = mm => Math.round(mm * DPI / 25.4);
+const dots2mm = d => d * 25.4 / DPI;
+const marginMM = () => status && status.device ? status.device.margin_mm : 2;
+
+// ----------------------------------------------------------- rendering
+// One label -> {w, h, bits: Uint8Array(w*h) of 0/1}. h = printable dots of the tape.
+function renderLabel(l) {
+  const H = printDots();
+  const pad = mm2dots(l.pad_mm);
+  const fw = +l.frame || 0;
+  const inset = fw ? fw + 2 : 0;
+  const lines = (l.text || "").split("\n");
+  const c = document.createElement("canvas");
+  const g = c.getContext("2d", {willReadFrequently: true});
+  const fontStr = px => `${l.italic ? "italic " : ""}${l.bold ? "700 " : "400 "}${px}px ${l.font}`;
+  const avail = H - 2 * inset - 2;
+  const fixedW = l.length_mm > 0 ? mm2dots(l.length_mm) : 0;
+  const hasText = lines.some(s => s.trim().length);
+  const imgW = l.img ? Math.max(1, Math.round(l.img.width * (avail / l.img.height))) : 0;
+  const gapImg = l.img && hasText ? Math.max(4, pad) : 0;
+  function measure(px) {
+    g.font = fontStr(px);
+    let w = 0, asc = 0, desc = 0;
+    for (const s of lines) {
+      const m = g.measureText(s || " ");
+      w = Math.max(w, m.width);
+      asc = Math.max(asc, m.actualBoundingBoxAscent || px * .75);
+      desc = Math.max(desc, m.actualBoundingBoxDescent || px * .2);
+    }
+    const pitch = px * l.spacing;
+    return {w: Math.ceil(w), asc, desc, pitch, block: (lines.length - 1) * pitch + asc + desc};
+  }
+  let size = +l.size || 0;
+  if (hasText && !size) {
+    let lo = 4, hi = 400;
+    while (hi - lo > 0.25) {
+      const mid = (lo + hi) / 2, mm = measure(mid);
+      const okW = !fixedW || mm.w + imgW + gapImg + 2 * pad + 2 * inset <= fixedW;
+      if (mm.block <= avail && okW) lo = mid; else hi = mid;
+    }
+    size = Math.floor(lo * 4) / 4;
+  }
+  const m = hasText ? measure(size) : {w: 0, block: 0, asc: 0, pitch: 0};
+  const contentW = m.w + imgW + gapImg;
+  const W = Math.max(8, Math.min(fixedW || contentW + 2 * pad + 2 * inset, 18000));
+  c.width = W; c.height = H;
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+  g.fillStyle = "#000"; g.strokeStyle = "#000";
+  const left = pad + inset, right = W - pad - inset;
+  const x0 = l.align === "left" ? left : l.align === "right" ? right - contentW : Math.round((W - contentW) / 2);
+  let tx = x0;
+  if (l.img) {
+    const ix = l.imgpos === "right" && hasText ? x0 + m.w + gapImg : x0;
+    drawImage1bit(g, l, ix, Math.round((H - avail) / 2), imgW, avail);
+    if (l.imgpos !== "right") tx = x0 + imgW + gapImg;
+  }
+  if (hasText) {
+    g.font = fontStr(size);
+    g.textBaseline = "alphabetic";
+    const top = Math.round((H - m.block) / 2 + m.asc);
+    lines.forEach((s, i) => {
+      const w = g.measureText(s).width;
+      const x = l.align === "center" ? tx + (m.w - w) / 2 : l.align === "right" ? tx + m.w - w : tx;
+      g.fillText(s, x, top + i * m.pitch);
+    });
+  }
+  if (fw) { g.lineWidth = fw; g.strokeRect(fw / 2, fw / 2, W - fw, H - fw); }
+  const px = g.getImageData(0, 0, W, H).data;
+  const bits = new Uint8Array(W * H);
+  for (let i = 0, j = 0; i < bits.length; ++i, j += 4) bits[i] = ((px[j] < 128) !== !!l.invert) ? 1 : 0;
+  return {w: W, h: H, bits, size};
+}
+
+function drawImage1bit(g, l, x, y, w, h) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const cg = c.getContext("2d", {willReadFrequently: true});
+  cg.fillStyle = "#fff"; cg.fillRect(0, 0, w, h);
+  cg.imageSmoothingQuality = "high";
+  cg.drawImage(l.img, 0, 0, w, h);
+  const d = cg.getImageData(0, 0, w, h), p = d.data, n = w * h;
+  const lum = new Float32Array(n);
+  for (let i = 0; i < n; ++i) lum[i] = p[i * 4] * .299 + p[i * 4 + 1] * .587 + p[i * 4 + 2] * .114;
+  const t = 255 * (+l.threshold / 100);
+  for (let yy = 0; yy < h; ++yy) for (let xx = 0; xx < w; ++xx) {
+    const i = yy * w + xx, v = lum[i], on = v < t;
+    if (l.dither) {  // Floyd-Steinberg
+      const e = v - (on ? 0 : 255);
+      if (xx + 1 < w) lum[i + 1] += e * 7 / 16;
+      if (yy + 1 < h) { if (xx > 0) lum[i + w - 1] += e * 3 / 16; lum[i + w] += e * 5 / 16; if (xx + 1 < w) lum[i + w + 1] += e / 16; }
+    }
+    const k = i * 4;
+    p[k] = p[k + 1] = p[k + 2] = on ? 0 : 255; p[k + 3] = 255;
+  }
+  cg.putImageData(d, 0, 0);
+  g.drawImage(c, x, y);
+}
+
+// Bitmap drawn on the loaded tape's colour; the tape band is wider than the print area.
+function paint(canvas, pages, gap) {
+  const mm = tapeMM();
+  const tapeDots = mm2dots(mm === 4 ? 3.5 : mm);
+  const H = Math.max(tapeDots, ...pages.map(p => p.h));
+  const W = pages.reduce((a, p) => a + p.w, 0) + gap * (pages.length - 1);
+  canvas.width = Math.min(W, 16000); canvas.height = H;
+  const g = canvas.getContext("2d");
+  const img = g.createImageData(canvas.width, H);
+  const tape = hexRgb(tapeCss()), ink = hexRgb(inkCss());
+  let x0 = 0;
+  for (const p of pages) {
+    const yo = Math.floor((H - p.h) / 2);
+    for (let y = 0; y < H; ++y) for (let x = 0; x < p.w && x0 + x < canvas.width; ++x) {
+      const yy = y - yo, on = yy >= 0 && yy < p.h && p.bits[yy * p.w + x];
+      const c = on ? ink : tape, k = (y * canvas.width + x0 + x) * 4;
+      img.data[k] = c[0]; img.data[k + 1] = c[1]; img.data[k + 2] = c[2]; img.data[k + 3] = 255;
+    }
+    x0 += p.w + gap;
+  }
+  g.putImageData(img, 0, 0);
+  return {W: canvas.width, H};
+}
+function hexRgb(h) {
+  h = (h || "#000").replace("#", "");
+  if (h.length === 3) h = h.split("").map(c => c + c).join("");
+  return [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16));
+}
+
+// ----------------------------------------------------------- editor UI
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "value") e.value = v;
+    else if (v === true) e.setAttribute(k, "");
+    else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) e.append(k);
+  return e;
+}
+function seg(options, value, onpick) {
+  const s = el("span", {class: "seg"});
+  for (const [v, t, title] of options) s.append(el("button", {class: v === value ? "on" : "", title: title || t, onclick: () => onpick(v)}, t));
+  return s;
+}
+function numIn(v, min, max, step, set, title) {
+  const n = el("input", {type: "number", min, max, step, value: v, title});
+  n.addEventListener("input", () => { const x = parseFloat(n.value); if (!isNaN(x)) { set(Math.min(max, Math.max(min, x))); refresh(); } });
+  return n;
+}
+function check(on, text, set, title) {
+  return el("label", {class: "ck", title}, el("input", {type: "checkbox", checked: !!on, onchange: e => { set(e.target.checked); refresh(); }}), text);
+}
+function loadImage(l, src) {
+  const im = new Image();
+  im.onload = () => { l.img = im; renderAll(); };
+  im.src = src;
+}
+
+function buildCard(l, i) {
+  const card = el("div", {class: "card label" + (i === selected ? " sel" : "") + (l.img ? " has-img" : "")});
+  card.addEventListener("click", () => { if (selected !== i) { selected = i; cardEls.forEach((c, k) => c.classList.toggle("sel", k === i)); } });
+  const cv = el("canvas", {title: "Preview on the loaded tape"});
+  const meta = el("div", {class: "meta"});
+  card.append(el("div", {class: "tape"}, cv), meta);
+  const ta = el("textarea", {placeholder: "Label text (Enter for a new line)", spellcheck: "false", value: l.text});
+  ta.addEventListener("input", () => { l.text = ta.value; update(); });
+  const fontSel = el("select", {onchange: e => { l.font = e.target.value; refresh(); }, title: "Font"});
+  for (const [v, t] of FONTS) fontSel.append(el("option", {value: v, selected: v === l.font}, t));
+  const redraw = fn => v => { fn(v); renderAll(); };
+  const r1 = el("div", {class: "row"}, fontSel,
+    seg([["b", "B", "Bold"]], l.bold ? "b" : "", redraw(() => l.bold = !l.bold)),
+    seg([["i", "I", "Italic"]], l.italic ? "i" : "", redraw(() => l.italic = !l.italic)),
+    seg([["left", "Left"], ["center", "Centre"], ["right", "Right"]], l.align, redraw(v => l.align = v)),
+    el("span", {class: "small"}, "Size"), numIn(l.size, 0, 400, 1, v => l.size = v, "Text height in dots; 0 = as big as fits"),
+    el("span", {class: "small"}, "Length mm"), numIn(l.length_mm, 0, 2000, 1, v => l.length_mm = v, "Fixed label length; 0 = fit the text"));
+  const f = el("input", {type: "file", accept: "image/*", style: "display:none", onchange: e => {
+    const file = e.target.files[0]; if (!file) return;
+    const rd = new FileReader(); rd.onload = () => loadImage(l, rd.result); rd.readAsDataURL(file);
+  }});
+  const r2 = el("div", {class: "row"},
+    el("span", {class: "small"}, "Ends mm"), numIn(l.pad_mm, 0, 50, 0.5, v => l.pad_mm = v, "Blank tape at each end of the printed area"),
+    el("span", {class: "small"}, "Spacing"), numIn(l.spacing, 0.7, 2, 0.05, v => l.spacing = v, "Line spacing"),
+    check(l.frame > 0, "Frame", v => l.frame = v ? 3 : 0),
+    check(l.invert, "Invert", v => l.invert = v),
+    el("span", {class: "small"}, "Copies"), numIn(l.copies, 1, 50, 1, v => l.copies = Math.max(1, Math.round(v))),
+    el("span", {class: "spacer"}), f,
+    el("button", {class: "icon", title: "Add an image (scaled to the tape height)", onclick: () => f.click()}, l.img ? "Image…" : "+ Image"),
+    el("button", {class: "icon", title: "Move up", onclick: () => move(i, -1)}, "↑"),
+    el("button", {class: "icon", title: "Move down", onclick: () => move(i, 1)}, "↓"),
+    el("button", {class: "icon", title: "Duplicate", onclick: () => { labels.splice(i + 1, 0, {...l}); selected = i + 1; renderAll(); }}, "Duplicate"),
+    el("button", {class: "icon danger", title: "Delete this label", onclick: () => { labels.splice(i, 1); if (!labels.length) labels.push(defaultLabel("")); selected = Math.min(selected, labels.length - 1); renderAll(); }}, "Delete"));
+  const r3 = el("div", {class: "row imgrow"},
+    el("span", {class: "small"}, "Image"),
+    seg([["left", "Left of text"], ["right", "Right of text"]], l.imgpos, redraw(v => l.imgpos = v)),
+    check(l.dither, "Dither (photos)", v => l.dither = v),
+    el("span", {class: "small"}, "Threshold %"), numIn(l.threshold, 1, 99, 1, v => l.threshold = v),
+    el("button", {class: "icon danger", onclick: () => { l.img = null; renderAll(); }}, "Remove image"));
+  card.append(ta, r1, r2, r3);
+  function update() {
+    const bm = renderLabel(l);
+    l._bm = bm;
+    const {W, H} = paint(cv, [bm], 0);
+    const avail = Math.max(160, card.clientWidth - 40 || $("labels").clientWidth - 40);
+    const scale = Math.min(4, avail / W, 110 / H);
+    cv.style.width = Math.round(W * scale) + "px";
+    cv.style.height = Math.round(H * scale) + "px";
+    meta.textContent = "";
+    meta.append(el("span", {}, `${dots2mm(bm.w).toFixed(1)} mm long${l.copies > 1 ? ` × ${l.copies}` : ""}`),
+                el("span", {}, `${bm.w} × ${bm.h} dots${hasText(l) && !l.size ? ` · text ${bm.size} dots` : ""}`));
+    estimate();
+    save();
+  }
+  card._update = update;
+  return card;
+}
+const hasText = l => (l.text || "").trim().length > 0;
+
+function move(i, d) {
+  const j = i + d;
+  if (j < 0 || j >= labels.length) return;
+  [labels[i], labels[j]] = [labels[j], labels[i]];
+  selected = j;
+  renderAll();
+}
+
+let cardEls = [];
+function refresh() { cardEls.forEach(c => c._update()); }
+function renderAll() {
+  const box = $("labels");
+  box.textContent = "";
+  cardEls = labels.map((l, i) => buildCard(l, i));
+  cardEls.forEach(c => box.append(c));
+  refresh();
+}
+
+function estimate() {
+  let n = 0, mm = 0;
+  for (const l of labels) {
+    if (!l._bm) continue;
+    n += l.copies;
+    mm += l.copies * (dots2mm(l._bm.w) + 2 * marginMM());
+  }
+  const copies = Math.max(1, +$("copies").value || 1);
+  n *= copies; mm *= copies;
+  $("estimate").textContent = n ? `${n} label${n > 1 ? "s" : ""} · about ${Math.round(mm)} mm of tape + the ~20 mm leader` : "";
+  $("print").textContent = n > 1 ? `Print ${n} labels` : "Print";
+}
+
+// ----------------------------------------------------------- TDJ1 job files
+function encodeJob(pages, title, copies, chain, source) {
+  const src = new TextEncoder().encode(JSON.stringify(source));
+  let size = 64 + 8 + src.length;
+  for (const p of pages) size += 4 + p.w * Math.ceil(p.h / 8);
+  const buf = new Uint8Array(size), dv = new DataView(buf.buffer);
+  buf.set([84, 68, 74, 49], 0);                       // "TDJ1"
+  buf[4] = 1 | (chain ? 2 : 0);                      // auto cut | chain
+  buf[5] = tapeMM();
+  dv.setUint16(6, mm2dots(marginMM()), true);
+  dv.setUint16(8, copies, true);
+  dv.setUint16(10, pages.length, true);
+  dv.setUint32(12, Math.floor(Date.now() / 1000), true);
+  let t = new TextEncoder().encode(title);
+  if (t.length > 47) t = t.slice(0, 47);
+  buf.set(t, 16);
+  let o = 64;
+  for (const p of pages) {
+    dv.setUint16(o, p.w, true); dv.setUint16(o + 2, p.h, true); o += 4;
+    const cb = Math.ceil(p.h / 8);
+    for (let x = 0; x < p.w; ++x) {
+      for (let y = 0; y < p.h; ++y) if (p.bits[y * p.w + x]) buf[o + (y >> 3)] |= 0x80 >> (y & 7);
+      o += cb;
+    }
+  }
+  buf.set([83, 82, 67, 49], o);                       // "SRC1": the editor design, for "Edit"
+  dv.setUint32(o + 4, src.length, true);
+  buf.set(src, o + 8);
+  return buf;
+}
+
+function decodeJob(ab) {
+  const b = new Uint8Array(ab), dv = new DataView(ab);
+  if (b.length < 64 || String.fromCharCode(...b.slice(0, 4)) !== "TDJ1") return null;
+  const n = dv.getUint16(10, true), pages = [];
+  let o = 64;
+  for (let i = 0; i < n; ++i) {
+    const w = dv.getUint16(o, true), h = dv.getUint16(o + 2, true); o += 4;
+    const cb = Math.ceil(h / 8), bits = new Uint8Array(w * h);
+    for (let x = 0; x < w; ++x) { for (let y = 0; y < h; ++y) if (b[o + (y >> 3)] & (0x80 >> (y & 7))) bits[y * w + x] = 1; o += cb; }
+    pages.push({w, h, bits});
+  }
+  let source = null;
+  if (o + 8 <= b.length && String.fromCharCode(...b.slice(o, o + 4)) === "SRC1") {
+    try { source = JSON.parse(new TextDecoder().decode(b.slice(o + 8, o + 8 + dv.getUint32(o + 4, true)))); } catch (e) {}
+  }
+  return {pages, source};
+}
+
+async function doPrint() {
+  if (!status || !status.tape || !GEOM[status.tape.width_mm]) {
+    if (!confirm("The printer is not reporting a tape. Send the job anyway?")) return;
+  } else if (tapeOverride !== "auto" && +tapeOverride !== status.tape.width_mm) {
+    if (!confirm(`The layout is set for ${tapeOverride} mm tape but ${status.tape.width_mm} mm is loaded. Print anyway?`)) return;
+  }
+  const pages = [];
+  for (const l of labels) {
+    if (!hasText(l) && !l.img) continue;
+    const bm = l._bm || renderLabel(l);
+    for (let k = 0; k < l.copies; ++k) pages.push(bm);
+  }
+  if (!pages.length) { toast("Nothing to print: every label is empty"); return; }
+  const title = labels.filter(l => hasText(l)).map(l => l.text.split("\n")[0].trim()).join(", ") || "image";
+  const src = {v: 1, tape_mm: tapeMM(), labels: labels.map(plain)};
+  const job = encodeJob(pages, title, Math.max(1, Math.min(99, +$("copies").value || 1)), $("chain").checked, src);
+  $("print").disabled = true;
+  try {
+    const r = await fetch("/api/print?source=web", {method: "POST", headers: {"Content-Type": "application/octet-stream"}, body: job});
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || r.statusText);
+    toast(`Queued job #${j.job.id}: ${j.job.labels * j.job.copies} label${j.job.labels * j.job.copies > 1 ? "s" : ""}`);
+    loadHistory();
+  } catch (e) {
+    toast("Print failed: " + e.message, 6000);
+  } finally {
+    setTimeout(() => $("print").disabled = false, 800);
+  }
+}
+
+// ----------------------------------------------------------- status + history
+async function poll() {
+  try {
+    const s = await (await fetch("/api/status", {cache: "no-store"})).json();
+    const tapeChanged = !status || JSON.stringify(status.tape) !== JSON.stringify(s.tape);
+    const lastChanged = status && (status.job.last_id !== s.job.last_id || status.job.jobs_done !== s.job.jobs_done);
+    status = s;
+    showStatus();
+    if (tapeChanged) { refresh(); loadHistory(); }
+    else if (lastChanged) loadHistory();
+  } catch (e) {
+    $("sttext").textContent = "TapeDeck offline"; $("stdot").className = "dot err";
+  }
+  setTimeout(poll, status && status.state === "printing" ? 1000 : 2500);
+}
+
+function showStatus() {
+  const s = status;
+  const map = {ready: ["Ready", "ok"], printing: [`Printing ${Math.min(s.job.done + 1, s.job.total)} of ${s.job.total}`, "busy"],
+               error: [s.printer.error || "Printer error", "err"], no_printer: ["Printer not connected", "warn"], no_module: ["USB Module not found", "err"]};
+  let [t, c] = map[s.state] || [s.state, ""];
+  if (s.state === "ready" && s.job.queued) { t = `${s.job.queued} queued`; c = "busy"; }
+  else if (s.state === "ready" && s.printer.label_held) t = "Ready · last label held";
+  if (s.state === "ready" && !s.job.last_ok && s.job.last_error) { t = "Last job failed"; c = "warn"; }
+  $("sttext").textContent = t; $("stdot").className = "dot " + c;
+  $("st").title = s.job.last_error ? "Last job: " + s.job.last_error : "";
+  const sw = $("sw");
+  if (s.tape && s.tape.width_mm) {
+    sw.style.background = s.tape.color_css; sw.style.color = s.tape.ink_css;
+    $("tapetext").textContent = `${s.tape.width_mm === 4 ? 3.5 : s.tape.width_mm} mm · ${s.tape.ink} on ${s.tape.color}`;
+  } else {
+    sw.style.background = "transparent"; sw.style.color = "var(--dim)";
+    $("tapetext").textContent = s.state === "no_printer" || s.state === "no_module" ? "no printer" : "no tape";
+  }
+  const d = s.device;
+  $("devinfo").innerHTML = "";
+  $("devinfo").append(
+    `${d.hostname}.local · ${d.ip}`, el("br"),
+    `${s.printer.product || "no printer"}${s.printer.serial ? " · s/n " + s.printer.serial : ""}`, el("br"),
+    `v${d.version} · ${s.job.labels_done} labels since boot · flash ${Math.round(d.fs_used / 1024)} of ${Math.round(d.fs_total / 1024)} KB`);
+  if (s.job.last_error) $("devinfo").append(el("br"), el("span", {style: "color:var(--err)"}, "Last error: " + s.job.last_error));
+}
+
+const jobCache = {};
+async function loadHistory() {
+  let list;
+  try { list = (await (await fetch("/api/jobs", {cache: "no-store"})).json()).jobs; } catch (e) { return; }
+  const box = $("hist");
+  box.textContent = "";
+  if (!list.length) { box.append(el("span", {class: "small"}, "No jobs yet.")); return; }
+  for (const j of list) {
+    const cv = el("canvas");
+    const when = j.created ? new Date(j.created * 1000).toLocaleString([], {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"}) : "";
+    box.append(el("div", {class: "job"},
+      el("div", {class: "t", title: j.title}, j.title || "(untitled)"),
+      el("div", {class: "b"},
+        el("button", {class: "icon", title: "Print again", onclick: () => reprint(j.id)}, "Reprint"),
+        el("button", {class: "icon", title: "Load into the editor", onclick: () => editJob(j.id)}, "Edit"),
+        el("button", {class: "icon danger", title: "Delete from history", onclick: () => delJob(j.id)}, "✕")),
+      el("div", {class: "small", style: "grid-column:1/3"}, `#${j.id} · ${j.labels} label${j.labels > 1 ? "s" : ""}${j.copies > 1 ? " ×" + j.copies : ""} · ${j.length_mm} mm · for ${j.tape_mm || "?"} mm${when ? " · " + when : ""}`),
+      el("div", {class: "th"}, cv)));
+    thumb(j.id, cv);
+  }
+}
+function fetchJob(id) {
+  if (!jobCache[id]) jobCache[id] = fetch(`/api/jobs/${id}`).then(r => r.arrayBuffer()).then(decodeJob).catch(() => null);
+  return jobCache[id];
+}
+async function thumb(id, cv) {
+  const job = await fetchJob(id);
+  if (!job || !job.pages.length) return;
+  const {H} = paint(cv, job.pages, 6);
+  cv.style.height = Math.min(44, H * 0.6) + "px";
+}
+async function reprint(id) {
+  const r = await fetch(`/api/jobs/${id}/print`, {method: "POST"});
+  const j = await r.json().catch(() => ({}));
+  toast(j.ok ? `Reprinting job #${id}` : "Reprint failed: " + (j.error || r.statusText), j.ok ? 2500 : 6000);
+}
+async function delJob(id) {
+  if (!confirm(`Delete job #${id} from the history?`)) return;
+  await fetch(`/api/jobs/${id}`, {method: "DELETE"});
+  delete jobCache[id];
+  loadHistory();
+}
+async function editJob(id) {
+  const job = await fetchJob(id);
+  if (!job) return;
+  if (!job.source || !job.source.labels) {
+    toast("That job came from the API, so there is no design to edit; it can still be reprinted.", 6000);
+    return;
+  }
+  if (labels.some(hasText) && !confirm("Replace the labels in the editor with this job's design?")) return;
+  restore(job.source.labels);
+  selected = 0;
+  renderAll();
+  toast(`Loaded job #${id} into the editor`);
+}
+
+let toastTimer;
+function toast(msg, ms) {
+  const t = $("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), ms || 2500);
+}
+
+// ----------------------------------------------------------- wiring
+$("add").onclick = () => {
+  const base = labels[selected] || defaultLabel();
+  labels.push({...base, text: "", copies: 1, img: null});
+  selected = labels.length - 1;
+  renderAll();
+  cardEls[selected].querySelector("textarea").focus();
+  cardEls[selected].scrollIntoView({block: "center", behavior: "smooth"});
+};
+$("clear").onclick = () => { if (confirm("Remove all labels from the editor?")) { labels = [defaultLabel("")]; selected = 0; renderAll(); } };
+$("bulk").onclick = () => { $("bulktext").value = ""; $("bulkdlg").showModal(); };
+$("bulkcancel").onclick = () => $("bulkdlg").close();
+$("bulkok").onclick = () => {
+  const base = labels[selected] || defaultLabel();
+  const rows = $("bulktext").value.split("\n").map(s => s.trim()).filter(Boolean);
+  const fresh = rows.map(r => ({...base, text: r.split("|").map(s => s.trim()).join("\n"), copies: 1, img: null}));
+  if (!fresh.length) { $("bulkdlg").close(); return; }
+  if (labels.length === 1 && !hasText(labels[0])) labels = fresh; else labels.push(...fresh);
+  selected = labels.length - 1;
+  $("bulkdlg").close();
+  renderAll();
+  toast(`Added ${fresh.length} label${fresh.length > 1 ? "s" : ""}`);
+};
+$("print").onclick = doPrint;
+$("copies").oninput = estimate;
+$("tapesel").onchange = e => { tapeOverride = e.target.value; refresh(); };
+$("apilink").onclick = e => {
+  e.preventDefault();
+  const h = location.host;
+  $("apiex").textContent =
+`# Labels rendered on the TapeDeck for the loaded tape (one job, cut between labels)
+curl -X POST http://${h}/api/print -H 'Content-Type: application/json' \\
+  -d '{"labels":["136078-1015\\n27C512 U5","136078-1016\\n27C512 U6"]}'
+
+# Per-label (or top-level default) options: font sans|bold|mono|serif,
+# size (dots), align left|center|right, length_mm, pad_mm, frame, invert,
+# copies. Top level: title, copies (whole set), margin_mm, chain.
+curl -X POST http://${h}/api/print -H 'Content-Type: application/json' \\
+  -d '{"text":"KEEP OUT","font":"bold","frame":true,"copies":3}'
+
+# Your own bitmap: binary PBM (P4), height up to ${printDots()} dots on this tape
+curl -X POST 'http://${h}/api/print?title=logo' --data-binary @logo.pbm
+
+curl http://${h}/api/status      # printer, tape width + colours, job progress
+curl http://${h}/api/jobs        # history; POST /api/jobs/ID/print reprints`;
+  $("apidlg").showModal();
+};
+$("apiclose").onclick = () => $("apidlg").close();
+let rt;
+window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(refresh, 150); });
+document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "p") { e.preventDefault(); doPrint(); } });
+
+load();
+renderAll();
+poll();
+loadHistory();
+</script>
+</body>
+</html>

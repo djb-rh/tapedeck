@@ -2,6 +2,7 @@
 #include <string.h>
 #include <vector>
 #include "ptouch.h"
+#include "jobfile.h"
 
 void setUp() {}
 void tearDown() {}
@@ -73,10 +74,34 @@ static void test_encode_layout() {
   TEST_ASSERT_EQUAL_HEX8(0x80 >> (pin & 7), l1[pin >> 3]);
 }
 
+static void test_jobfile_header() {
+  tdj::Header h;
+  h.flags = tdj::F_AUTOCUT | tdj::F_CHAIN; h.tape_mm = 12; h.margin_dots = 14; h.copies = 3; h.pages = 2; h.created = 1763500000;
+  strcpy(h.title, "ROM labels");
+  uint8_t b[tdj::kHeaderSize];
+  tdj::write_header(h, b);
+  tdj::Header r;
+  TEST_ASSERT_TRUE(tdj::read_header(b, r));
+  TEST_ASSERT_EQUAL(3, r.copies);
+  TEST_ASSERT_EQUAL(2, r.pages);
+  TEST_ASSERT_EQUAL(12, r.tape_mm);
+  TEST_ASSERT_EQUAL_STRING("ROM labels", r.title);
+  b[0] = 'X';
+  TEST_ASSERT_FALSE(tdj::read_header(b, r));
+  uint8_t ph[4];
+  tdj::write_page_header(300, 70, ph);
+  tdj::PageInfo pi;
+  TEST_ASSERT_TRUE(tdj::read_page_header(ph, pi));
+  TEST_ASSERT_EQUAL(300 * 9, pi.bytes());
+  tdj::write_page_header(10, 200, ph);
+  TEST_ASSERT_FALSE(tdj::read_page_header(ph, pi));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_packbits_roundtrip);
   RUN_TEST(test_status_parse);
   RUN_TEST(test_encode_layout);
+  RUN_TEST(test_jobfile_header);
   return UNITY_END();
 }

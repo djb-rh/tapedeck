@@ -25,6 +25,66 @@ static void utf16_to_ascii(const uint8_t* buf, size_t buflen, char* out, size_t 
   while (o && out[o - 1] == ' ') out[--o] = 0;
 }
 
+// Bit-banged SPI on the M-Bus pins (SCK 18, MOSI 23, MISO 19).
+static uint8_t bb_xfer(uint8_t out) {
+  uint8_t in = 0;
+  for (int b = 7; b >= 0; --b) {
+    digitalWrite(23, (out >> b) & 1); delayMicroseconds(2);
+    digitalWrite(18, HIGH); delayMicroseconds(2);
+    in = (in << 1) | digitalRead(19);
+    digitalWrite(18, LOW); delayMicroseconds(2);
+  }
+  return in;
+}
+static void bb_write(int cs, uint8_t reg, uint8_t v) {
+  digitalWrite(cs, LOW); bb_xfer((reg << 3) | 0x02); bb_xfer(v); digitalWrite(cs, HIGH); delayMicroseconds(5);
+}
+static uint8_t bb_read(int cs, uint8_t reg) {
+  digitalWrite(cs, LOW); bb_xfer(reg << 3); uint8_t v = bb_xfer(0); digitalWrite(cs, HIGH); delayMicroseconds(5);
+  return v;
+}
+
+void PrinterUsb::detect_pins(int& cs_out, int& int_out) {
+  pinMode(18, OUTPUT); digitalWrite(18, LOW);
+  pinMode(23, OUTPUT); digitalWrite(23, LOW);
+  pinMode(19, INPUT);
+  const int cands[] = {13, 5, 0};  // USB Module v1.2 "SS Select" CH1/CH2/CH3
+  for (int cs : cands) { pinMode(cs, OUTPUT); digitalWrite(cs, HIGH); }  // a floating SS hears LCD traffic
+  cs_out = -1;
+  for (int cs : cands) {
+    bb_write(cs, 17, 0x10);  // PINCTL: full-duplex SPI
+    uint8_t rev = bb_read(cs, 18);
+    Serial.printf("[usb] CS G%d: REVISION 0x%02X\r\n", cs, rev);
+    if (cs_out < 0 && (rev == 0x12 || rev == 0x13)) cs_out = cs;
+  }
+  int_out = -1;
+  if (cs_out >= 0) {
+    // "INT Select" CH1 = G35, CH2 = G34. Reset the chip so OSCOKIRQ is
+    // pending (it sets once the crystal is running), enable only that IRQ,
+    // and watch which pin follows CPUCTL.IE: idle high with IE off, driven
+    // low with IE on.
+    pinMode(34, INPUT); pinMode(35, INPUT);
+    bb_write(cs_out, 15, 0x20);      // USBCTL: CHIPRES
+    bb_write(cs_out, 15, 0x00);
+    bb_write(cs_out, 17, 0x10);      // PINCTL: full duplex again, edge INT, active low
+    for (int i = 0; i < 50 && !(bb_read(cs_out, 13) & 0x01); ++i) delay(1);  // USBIRQ.OSCOKIRQ
+    bb_write(cs_out, 26, 0x00);      // HIEN off
+    bb_write(cs_out, 14, 0x01);      // USBIEN = OSCOKIE
+    bb_write(cs_out, 16, 0x00);      // CPUCTL: IE off
+    delay(1);
+    int off34 = digitalRead(34), off35 = digitalRead(35);
+    bb_write(cs_out, 16, 0x01);      // IE on
+    delay(1);
+    int on34 = digitalRead(34), on35 = digitalRead(35);
+    bb_write(cs_out, 16, 0x00);
+    bb_write(cs_out, 14, 0x00);
+    Serial.printf("[usb] INT probe: G34 %d->%d  G35 %d->%d\r\n", off34, on34, off35, on35);
+    if (off35 && !on35) int_out = 35;
+    else if (off34 && !on34) int_out = 34;
+  }
+  pinMode(18, INPUT); pinMode(23, INPUT);
+}
+
 bool PrinterUsb::begin(int cs, int intr) {
   g_host = new M5_USBH_Host(&SPI, 18, 23, 19, cs, intr);
   if (!g_host->begin(0)) return false;

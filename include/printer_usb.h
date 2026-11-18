@@ -7,6 +7,10 @@
 
 class PrinterUsb {
  public:
+  // Finds the USB Module before any SPI driver owns the bus: CS by reading
+  // the MAX3421E REVISION register on G13/G5/G0, INT by toggling the chip's
+  // interrupt output and watching G35/G34. -1 when not found.
+  static void detect_pins(int& cs, int& intr);
   bool begin(int cs, int intr);
   // Runs the host stack once; call often from the USB task.
   void pump(uint32_t wait_ms = 0);
