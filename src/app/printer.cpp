@@ -256,6 +256,24 @@ void Printer::run() {
       }
       bump();
     }
+    if (!printerUsb.attached()) {
+      // Safety net: a device on the port that never enumerates means the
+      // host stack is wedged. The printer always enumerates at boot.
+      static uint32_t present_since = 0, last_check = 0;
+      if (millis() - last_check > 1000) {
+        last_check = millis();
+        if (printerUsb.device_present()) {
+          if (!present_since) present_since = millis();
+          else if (millis() - present_since > 15000) {
+            events.add("USB device present but not enumerating for 15 s; restarting");
+            delay(200);
+            ESP.restart();
+          }
+        } else {
+          present_since = 0;
+        }
+      }
+    }
     if (!printerUsb.ready()) {
       // drop anything queued while there is no printer
       uint32_t id;

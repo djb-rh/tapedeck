@@ -105,6 +105,12 @@ void PrinterUsb::pump(uint32_t wait_ms) {
   }
 }
 
+bool PrinterUsb::device_present() {
+  if (!g_host) return false;
+  uint8_t hrsl = g_host->max3421_readRegister(31 << 3, false);  // HRSL: KSTATUS 0x80, JSTATUS 0x40
+  return (hrsl & 0xC0) != 0;  // J or K = something is holding a data line up
+}
+
 void PrinterUsb::on_mount(uint8_t daddr) { pending_mount_ = daddr; }
 
 void PrinterUsb::on_umount(uint8_t daddr) {
@@ -195,7 +201,7 @@ bool PrinterUsb::xfer(uint8_t ep, uint8_t* buf, size_t len, uint32_t timeout_ms,
   uint32_t t0 = millis();
   while (!w.done) {
     g_host->task(1);
-    if (!ready_) return false;  // unplugged while waiting
+    if (!ready_) { frame_irq(false); return false; }  // unplugged while waiting
     if (millis() - t0 > timeout_ms) {
       tuh_edpt_abort_xfer(daddr_, ep);
       frame_irq(false);

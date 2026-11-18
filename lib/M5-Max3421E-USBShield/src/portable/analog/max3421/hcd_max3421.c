@@ -831,6 +831,23 @@ bool hcd_edpt_clear_stall(uint8_t rhport, uint8_t dev_addr, uint8_t ep_addr) {
 // Interrupt Handler
 //--------------------------------------------------------------------+
 
+// TapeDeck patch: forget any transfer that was in flight. If the device goes
+// away mid-transfer nothing ever completes it, so busy_lock stayed set and the
+// next device's enumeration transfers queued behind it forever (a printer
+// power-cycled while TapeDeck polled its status never came back).
+static void reset_xfer_state(uint8_t rhport, bool in_isr) {
+  (void) rhport;
+  usbh_spin_lock(in_isr);
+  _hcd_data.busy_lock = false;
+  usbh_spin_unlock(in_isr);
+  _hcd_data.sndfifo_owner.daddr = 0xff;
+  _hcd_data.sndfifo_owner.hxfr = 0xff;
+  for (size_t i = 0; i < CFG_TUH_MAX3421_ENDPOINT_TOTAL; i++) {
+    max3421_ep_t* ep = &_hcd_data.ep[i];
+    if (ep->packet_size) ep->state = EP_STATE_IDLE;
+  }
+}
+
 static void handle_connect_irq(uint8_t rhport, bool in_isr) {
   uint8_t const hrsl = reg_read(rhport, HRSL_ADDR, in_isr);
   uint8_t const jk = hrsl & (HRSL_JSTATUS | HRSL_KSTATUS);
@@ -845,6 +862,7 @@ static void handle_connect_irq(uint8_t rhport, bool in_isr) {
 
       // port reset anyway, this will help to stable bus signal for next connection
       reg_write(rhport, HCTL_ADDR, HCTL_BUSRST, in_isr);
+      reset_xfer_state(rhport, in_isr);
       hcd_event_device_remove(rhport, in_isr);
       reg_write(rhport, HCTL_ADDR, 0, in_isr);
       break;
@@ -869,6 +887,7 @@ static void handle_connect_irq(uint8_t rhport, bool in_isr) {
       // FIXME multiple MAX3421 rootdevice address is not 1
       uint8_t const daddr = 1;
       free_ep(daddr);
+      reset_xfer_state(rhport, in_isr);
 
       hcd_event_device_attach(rhport, in_isr);
       break;

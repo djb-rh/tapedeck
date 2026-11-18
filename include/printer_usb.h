@@ -17,6 +17,9 @@ class PrinterUsb {
 
   bool ready() const { return ready_; }      // printer interface found and endpoints open
   bool attached() const { return daddr_ != 0; }
+  // True if the MAX3421E sees a device on the port (J or K line state),
+  // whether or not it has enumerated.
+  bool device_present();
   uint16_t vid() const { return vid_; }
   uint16_t pid() const { return pid_; }
   const char* manufacturer() const { return mfr_; }
