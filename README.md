@@ -32,6 +32,14 @@ M5Stack Core Basic with the M5Stack USB Module (MAX3421E) as the USB host.
   adapter. Other 128-pin/180 dpi P-touch models that speak the same raster
   protocol (PT-P700, P750W, E550W ...) will probably work but are untested.
 
+## Install
+
+The easiest way: open **https://djb-rh.github.io/tapedeck/** in Chrome or Edge,
+plug the Core Basic in over USB-C and click *Install*. Release images are also
+under [Releases](https://github.com/djb-rh/tapedeck/releases):
+`tapedeck-<ver>.bin` is the full image for offset 0 (erases settings and
+history), `-update.bin` the app alone for the Setup page's firmware upload.
+
 ## Build and flash
 
 PlatformIO with the pioarduino platform (PlatformIO Core 6.2+):
@@ -45,6 +53,9 @@ Later updates can go over Wi-Fi from the Setup page, or:
 ```bash
 curl -F fw=@.pio/build/app/firmware.bin http://tapedeck.local/update
 ```
+
+Releases: `tools/release.sh` builds `dist/` (both images) and `site/` (the web
+installer); `tools/publish_site.sh` pushes `site/` to the `gh-pages` branch.
 
 `lib/M5-Max3421E-USBShield` is a vendored copy of M5Stack's TinyUSB fork with a
 fix that printing depends on (see NOTES.md). Don't swap it back to the upstream
