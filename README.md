@@ -5,7 +5,8 @@ M5Stack Core Basic with the M5Stack USB Module (MAX3421E) as the USB host.
 
 - **Browser label editor**: what you see is what prints. Labels are drawn in the
   browser at the printer's 180 dpi and previewed in the colours of the cassette
-  that's loaded (the printer reports tape width, tape colour and ink colour).
+  that's loaded (the printer reports the tape width; you pick the colours once
+  per cassette and TapeDeck remembers them).
 - **Batches**: any number of labels go out as one job with a cut between each,
   so you pay the ~20 mm leader once per batch instead of once per label. Bulk
   add takes one label per line.

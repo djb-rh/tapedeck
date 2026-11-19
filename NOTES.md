@@ -29,8 +29,8 @@ Read this before changing the USB code or the job format.
 - It flow-controls with NAKs while it prints, so a 512-byte write can block for
   a whole page time (the code allows 30 s).
 - ~20 mm leader is cut off at the start of every job (cutter-to-head
-  distance). A 79-dot (11 mm) label came out with ~8 mm of trailing tape; the
-  D600 probably pads short labels to a minimum length. Not yet measured.
+  distance). No trailing pad: an early 79-dot label seemed to get ~8 mm of
+  extra tape, but later short labels came out cut right at their end.
 
 ## The MAX3421E driver bug (fixed in lib/)
 
